@@ -1,159 +1,390 @@
-# 🎬 Movie Ticket Booking System
+# 🎬 CinemaPulse — Full-Stack Movie Ticket Booking System
 
-A production-grade, concurrency-safe **Movie Ticket Booking REST API & React Application** designed specifically for Java Backend Developer portfolio evaluation and technical interviews.
+[![Java](https://img.shields.io/badge/Java-21%20%7C%2025-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white)](https://www.oracle.com/java/)
+[![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.4.5-6DB33F?style=for-the-badge&logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
+[![React](https://img.shields.io/badge/React-18-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
+[![Vite](https://img.shields.io/badge/Vite-5-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
+[![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1?style=for-the-badge&logo=mysql&logoColor=white)](https://www.mysql.com/)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 
----
-
-## 🌟 Key Highlights
-
-- **Backend Architecture**: Layered Controller-Service-Repository architecture following Clean Code and SOLID principles.
-- **2-Layer Concurrency Safety**:
-  1. *Layer 1*: Pessimistic Write Lock (`SELECT ... FOR UPDATE`) in `BookingService`.
-  2. *Layer 2*: Database-level Unique Constraint `UNIQUE(seat_id, show_id)` in MySQL storage engine.
-- **Stateless Security**: Spring Security 6 + JJWT 0.12.x Bearer authentication with Role-Based Access Control (`USER` and `ADMIN`).
-- **Data Protection**: BCrypt 10-round password hashing, zero plaintext passwords, and clean Git secrets isolation.
-- **REST Best Practices**: Consistent generic `ApiResponse<T>` envelope, `@RestControllerAdvice` global exception handling, RFC 7807 compatible HTTP error codes, and DTO request/response separation.
-- **Automated Testing**: JUnit 5, Mockito unit tests, multi-threaded concurrency race condition simulation, and MockMvc controller security tests.
-- **API Documentation**: Interactive Swagger OpenAPI 3.0 documentation available directly in the browser.
-- **Minimal Functional Frontend**: React + Vite UI demonstrating the real booking workflow without mock or fake data.
+A production-ready, full-stack **Movie Ticket Booking & Cinema Discovery Platform** built with **Java Spring Boot**, **React**, and **MySQL**. Featuring real-time movie synchronization via **The Movie Database (TMDB)** for Indian theatrical releases, GPS-based nearby cinema discovery, multi-tier interactive seat reservation, robust **two-layer concurrency control** against double-booking, and self-service booking cancellation with instant seat release.
 
 ---
 
-## 🏗️ System Architecture & Database Schema
+## 📑 Table of Contents
+
+- [Overview](#-overview)
+- [Key Features](#-key-features)
+- [System Architecture](#-system-architecture)
+- [Database Schema & ER Design](#-database-schema--er-design)
+- [Concurrency Defense Strategy](#-concurrency-defense-strategy)
+- [Technology Stack](#-technology-stack)
+- [REST API Reference](#-rest-api-reference)
+- [Getting Started](#-getting-started)
+  - [Prerequisites](#prerequisites)
+  - [Environment Variables](#environment-variables)
+  - [Backend Setup](#backend-setup)
+  - [Frontend Setup](#frontend-setup)
+- [Testing & Quality Assurance](#-testing--quality-assurance)
+- [Project Structure](#-project-structure)
+- [License](#-license)
+
+---
+
+## 🌟 Overview
+
+**CinemaPulse** bridges the gap between external entertainment APIs and high-integrity booking transactions:
+- It aggregates current in-cinema releases, recent theatrical titles, and upcoming movies directly from TMDB's Indian release feeds.
+- It calculates genuine Haversine distances to discover multiplexes and local cinemas within user-selected radii (10 km to 50 km) or across 36+ major Indian cities (including Mumbai, Delhi NCR, Bengaluru, Hyderabad, Pune, Indore, Rau, and more).
+- It handles seat reservations with zero tolerance for race conditions through pessimistic database locking and relational unique constraints.
+
+---
+
+## ✨ Key Features
+
+### 1. Real-Time Movie Intelligence (TMDB Integration)
+- **Now Showing**: Displays movies currently playing with verified, active, bookable shows in the selected location.
+- **Latest Releases**: Strictly filters Indian theatrical titles released within a configurable rolling window (default 30 days), sorted newest first.
+- **Coming Soon**: Strictly displays future Indian release dates with pre-booking alert notifications.
+- **Star Cast & Media**: Live cast photos, synopses, genres, runtimes, and high-resolution posters mapped by verified TMDB IDs with fallback SVG graphics.
+
+### 2. Location-Based Cinema Discovery
+- **GPS Auto-Detect**: Direct browser geolocation with locality reverse-geocoding.
+- **City & Locality Selector**: Searchable catalog of 36+ major Indian cities and suburban entertainment hubs (e.g., Rau, Mhow, Thane, Navi Mumbai).
+- **Haversine Distance Sorting**: Dynamic distance calculation from user coordinates, sorted nearest-first within configurable search radii (10 km, 20 km, 30 km, 50 km).
+- **Hybrid Provider Architecture**: Integrates local multiplex databases with Open Cinema Platform and Google Places fallbacks.
+
+### 3. Realistic Showtime Scheduling & Tiered Pricing
+- **Staggered Showtimes**: Cinema-specific start offsets (e.g., 09:30 AM, 12:45 PM, 04:15 PM, 07:30 PM, 10:45 PM) avoiding cloned show timings.
+- **Tiered Seat Pricing**: Transparent seat tiers per screen:
+  - **Regular (Rows A–D)**: Base multiplex rate
+  - **Premium (Rows E–G)**: Enhanced audio-visual tier
+  - **VIP Recliner (Rows H–J)**: Luxury reclining seats
+
+### 4. Interactive Seat Layout & Concurrency Protection
+- Visual 86-seat auditorium grid color-coded by tier (Available, Selected, Booked).
+- Live seat availability check prior to confirmation.
+- **Two-Layer Concurrency Defense**: Eliminates double-booking even under aggressive multi-threaded checkout requests.
+
+### 5. Booking Management & Instant Cancellation
+- Immediate booking confirmation with unique reference code, seat summaries, and show details.
+- **Self-Service Cancellation**: Allows users to cancel tickets up to 1 hour before showtime.
+- **Atomic Inventory Release**: Seats are immediately unlocked and restored to the available pool upon cancellation.
+- User Bookings Wallet (`/bookings`) displaying upcoming and cancelled ticket histories.
+
+### 6. Security & Authentication
+- Stateless **JWT (JSON Web Token)** bearer authentication via Spring Security 6.
+- **BCrypt** password hashing (10 rounds) with zero plaintext credential persistence.
+- Role-Based Access Control (`ROLE_USER`, `ROLE_ADMIN`).
+
+---
+
+## 🏗️ System Architecture
 
 ```
-[Users] (1) ──── (N) [Bookings] (1) ──── (N) [BookingSeats] (N) ──── (1) [Seats] (N) ──── (1) [Screens] (N) ──── (1) [Theatres]
-                           |
-                           └─────── (N) ──── [Shows] (N) ──── (1) [Movies]
+┌─────────────────────────────────────────────────────────────┐
+│                      React 18 Frontend                      │
+│     (Vite + React Router v7 + Axios + CSS Design System)     │
+└──────────────────────────────┬──────────────────────────────┘
+                               │  HTTPS / REST JSON
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│                 Spring Boot 3 Backend API                   │
+│                                                             │
+│   ┌────────────────────┐          ┌──────────────────────┐  │
+│   │ Security & Auth    │          │ Global Exceptions    │  │
+│   │ (JWT + BCrypt)     │          │ (@ControllerAdvice)  │  │
+│   └─────────┬──────────┘          └──────────┬───────────┘  │
+│             │                                │              │
+│   ┌─────────▼────────────────────────────────▼───────────┐  │
+│   │                    REST Controllers                  │  │
+│   │  (Movie, Cinema, Show, Booking, Auth, Theatre)       │  │
+│   └─────────────────────────┬────────────────────────────┘  │
+│                             │                               │
+│   ┌─────────────────────────▼────────────────────────────┐  │
+│   │                    Service Layer                     │  │
+│   │  • TmdbMovieService (External HTTP Caching)          │  │
+│   │  • ShowService (Haversine Distance + Schedules)      │  │
+│   │  • BookingService (Pessimistic Lock Transactions)    │  │
+│   │  • GooglePlacesService / OpenCinemaService           │  │
+│   └─────────────────────────┬────────────────────────────┘  │
+│                             │                               │
+│   ┌─────────────────────────▼────────────────────────────┐  │
+│   │                 Spring Data JPA Repositories         │  │
+│   └─────────────────────────┬────────────────────────────┘  │
+└──────────────────────────────┼──────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     MySQL 8.0 / H2 Engine                   │
+│   (Pessimistic Write Locks + Composite Unique Constraints)   │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### Table Overview
+---
 
-| Table | Purpose | Concurrency / Integrity Role |
+## 🗄️ Database Schema & ER Design
+
+```
+[Users] (1) ──────── (N) [Bookings] (1) ──────── (N) [BookingSeats] (N) ──── (1) [Seats]
+                             │                                                   │
+                             │ (N)                                               │ (N)
+                             ▼                                                   ▼
+                          [Shows] (N) ─────── (1) [Screens] (N) ───────── (1) [Theatres]
+                             │
+                             │ (N)
+                             ▼
+                          [Movies]
+```
+
+### Table Definitions
+
+| Table | Responsibility | Key Constraints & Indexes |
 |---|---|---|
-| `users` | Accounts, BCrypt passwords, Roles | Unique username & email constraints |
-| `movies` | Movie metadata, genre, duration | Soft delete (`is_active = false`) ensures past bookings stay valid |
-| `theatres` | Physical cinema venue details | Venue location and screen grouping |
-| `screens` | Cinema halls within a theatre | Screen capacity and layout parent |
-| `seats` | Physical seats (`A1`, `B5`, etc.) | Unique `(screen_id, seat_number)` prevents duplicate seats |
-| `shows` | Scheduled movie timings & tiered prices | Links movie, screen, showtime, and prices (`REGULAR`, `PREMIUM`, `VIP`) |
-| `bookings` | Customer order records | Confirmed vs Cancelled state tracking |
-| `booking_seats` | Seats booked per show | **`UNIQUE(seat_id, show_id)` guarantees no two bookings can ever reserve the same seat for the same show** |
+| `users` | Accounts, hashed credentials, roles | `UNIQUE(username)`, `UNIQUE(email)` |
+| `theatres` | Physical cinema complexes with GPS coordinates | `latitude`, `longitude`, `city` |
+| `screens` | Auditoriums within a theatre (IMAX, Atmos) | `FK(theatre_id)` |
+| `seats` | Numbered seats with tier classifications | `UNIQUE(screen_id, seat_number)` |
+| `movies` | Theatrical metadata, TMDB ID, release date | `tmdb_id`, `is_active`, `is_upcoming` |
+| `shows` | Scheduled showtimes with screen & movie | `FK(movie_id)`, `FK(screen_id)`, `show_time` |
+| `bookings` | Customer ticket orders | `UNIQUE(booking_reference)`, `status` |
+| `booking_seats` | Seat allocations per show | **`UNIQUE(seat_id, show_id)`** |
 
 ---
 
-## 🔒 Concurrency Strategy: Preventing Double Booking
+## 🔒 Concurrency Defense Strategy
 
-### The Problem
-When two users hit "Book" at the exact same millisecond for Seat `A1` on Show `10`:
-Without protection, both requests check availability simultaneously, see that `A1` is free, and both insert a booking record.
+Preventing simultaneous double-booking of high-demand seats is handled across **two separate enforcement layers**:
 
-### The Solution: Two-Layer Defense
-1. **Pessimistic Locking (`@Lock(LockModeType.PESSIMISTIC_WRITE)`)**:
-   `SeatRepository.findByIdInWithPessimisticLock()` issues a SQL `SELECT ... FOR UPDATE` query. MySQL locks the requested seat rows until the transaction commits. The second transaction must wait until the first transaction finishes. When it unblocks, it sees that the seat is already booked and throws `SeatAlreadyBookedException` (HTTP 409 Conflict).
-2. **Database Hard Constraint (`UNIQUE(seat_id, show_id)`)**:
-   Even if an unexpected bug bypassed service layer checks, MySQL rejects duplicate insertions at the database engine level. Spring catches `DataIntegrityViolationException` and responds with HTTP 409 Conflict.
-
----
-
-## 🚀 Getting Started (Windows Step-by-Step)
-
-### 1. Database Setup
-Open your MySQL client (Command Prompt or MySQL Workbench) and run:
-
-```sql
-CREATE DATABASE movie_booking_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
-CREATE USER 'movieapp'@'localhost' IDENTIFIED BY 'MovieApp@2025';
-GRANT ALL PRIVILEGES ON movie_booking_db.* TO 'movieapp'@'localhost';
-FLUSH PRIVILEGES;
+```
+Request 1 (User A) ───► [ SELECT ... FOR UPDATE ] ───► Acquired Lock ───► Seat Reserved ──► COMMIT
+                                                                                               │
+Request 2 (User B) ───► [ SELECT ... FOR UPDATE ] ───► WAITING... ─────────────────────────────┘
+                                                             │
+                                                             ▼
+                                                    Lock Released to User B
+                                                             │
+                                                             ▼
+                                              Availability Check Fails:
+                                          Throws SeatAlreadyBookedException
+                                                (HTTP 409 Conflict)
 ```
 
-*(Note: Pre-configured credentials match `backend/src/main/resources/application-local.properties`)*
+1. **Application Layer (Pessimistic Write Lock)**:
+   - When reserving seats, `SeatRepository.findByIdInWithPessimisticLock()` issues a SQL query with `FOR UPDATE`.
+   - The database locks the matched seat rows for the duration of the `@Transactional` boundary.
+   - Competing transactions attempting to book the same seats block until the first transaction commits or rolls back, after which they re-check availability and are rejected with `SeatAlreadyBookedException` (HTTP 409 Conflict).
+
+2. **Storage Engine Layer (Composite Unique Constraint)**:
+   - The `booking_seats` table enforces a hard composite unique constraint: `UNIQUE(seat_id, show_id)`.
+   - Even if concurrent code were to bypass application-level validation, the storage engine guarantees that duplicate seat-show records cannot physically be inserted.
 
 ---
 
-### 2. Backend Execution
+## 💻 Technology Stack
 
-Open Command Prompt or PowerShell in the `backend/` directory:
+### Backend
+- **Language**: Java 21 / 25
+- **Framework**: Spring Boot 3.4.5
+- **Persistence**: Spring Data JPA, Hibernate 6
+- **Security**: Spring Security 6, JJWT (io.jsonwebtoken 0.12.6)
+- **HTTP Client**: Spring 6 `RestClient` with JDK 11+ HttpClient
+- **API Documentation**: SpringDoc OpenAPI / Swagger 3.0
+- **Build Tool**: Apache Maven (Wrapper included)
 
-```cmd
-cd "c:\Users\pratik\Movie ticket booking Project\backend"
+### Frontend
+- **Framework**: React 18 (SPA)
+- **Routing**: React Router DOM v7
+- **Build Tool**: Vite 5
+- **HTTP Client**: Axios with Bearer token interceptors
+- **Styling**: Pure CSS Design System (dark multiplex aesthetic, mobile responsive)
 
-# Run all automated tests (JUnit 5 + Mockito + Concurrency test)
-mvn clean test
+### Database & Testing
+- **Production DB**: MySQL 8.0+
+- **In-Memory / Test DB**: H2 Database (MySQL compatibility mode)
+- **Test Framework**: JUnit 5, Mockito, Spring Boot Test, MockMvc
 
-# Run the Spring Boot Application
-mvn spring-boot:run
+---
+
+## 📡 REST API Reference
+
+Interactive Swagger documentation is accessible at `http://localhost:8080/swagger-ui.html` when running the backend.
+
+### Authentication
+| Method | Endpoint | Description | Auth Required |
+|---|---|---|---|
+| `POST` | `/api/auth/register` | Register a new user account | None |
+| `POST` | `/api/auth/login` | Authenticate and obtain JWT Bearer token | None |
+
+### Movies & Discovery
+| Method | Endpoint | Description | Auth Required |
+|---|---|---|---|
+| `GET` | `/api/movies/now-playing` | Active movies currently playing in cinemas | None |
+| `GET` | `/api/movies/latest-releases`| Recent Indian theatrical releases (past 30 days) | None |
+| `GET` | `/api/movies/upcoming` | Strictly future upcoming releases | None |
+| `GET` | `/api/movies/popular` | Popular theatrical titles | None |
+| `GET` | `/api/movies/trending` | Trending movies (day / week window) | None |
+| `GET` | `/api/movies/search` | Search movies by title keyword | None |
+| `GET` | `/api/movies/{id}` | Movie details, runtime, genre, rating | None |
+| `GET` | `/api/movies/{id}/cast` | Star cast list with profile photos | None |
+
+### Theatres & Showtimes
+| Method | Endpoint | Description | Auth Required |
+|---|---|---|---|
+| `GET` | `/api/shows/nearby` | Theatres & shows filtered by city/GPS/date | None |
+| `GET` | `/api/shows/scan-nearby` | Scan cinemas within GPS radius (sorted nearest) | None |
+| `GET` | `/api/shows/{id}` | Specific show details & pricing tiers | None |
+| `GET` | `/api/shows/{id}/seats` | Real-time seat map and availability | None |
+| `GET` | `/api/theatres/cities` | List of supported Indian cities | None |
+
+### Bookings (User Protected)
+| Method | Endpoint | Description | Auth Required |
+|---|---|---|---|
+| `POST` | `/api/bookings` | Reserve seats and generate booking | `USER` / `ADMIN` |
+| `GET` | `/api/bookings/{id}` | View booking confirmation details | `USER` / `ADMIN` |
+| `GET` | `/api/bookings/my-bookings` | View logged-in user's ticket wallet | `USER` / `ADMIN` |
+| `POST` | `/api/bookings/{id}/cancel` | Cancel booking and release seats | `USER` / `ADMIN` |
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+- **Java Development Kit (JDK)**: Version 17, 21, or 25
+- **Node.js**: Version 18+ and `npm`
+- **MySQL Server** (Optional for local testing; H2 in-memory is enabled by default for zero-config startup)
+
+---
+
+### Environment Variables
+Copy `.env.example` to `.env` in the project root:
+
+```bash
+cp .env.example .env
 ```
 
-Once started, the backend automatically seeds sample data on first run:
-- **Admin**: `admin` / `Admin@123`
-- **User**: `john_doe` / `User@123`
-- **Swagger Documentation**: [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)
-- **API Base URL**: `http://localhost:8080/api`
+Configure your API keys:
 
----
+```ini
+# TMDB API Read Access Token (Free from https://www.themoviedb.org/settings/api)
+TMDB_ACCESS_TOKEN=your_tmdb_read_access_token_here
 
-### 3. Frontend Execution
+# Optional: Google Places API Key (For live place search)
+GOOGLE_PLACES_API_KEY=your_google_places_key_here
 
-In a separate terminal, run:
+# Optional: Open Cinema Platform Key
+OPEN_CINEMA_API_KEY=your_open_cinema_key_here
 
-```cmd
-cd "c:\Users\pratik\Movie ticket booking Project\frontend"
-
-# Install dependencies (First time only)
-npm install
-
-# Start local React development server
-npm run dev
-```
-
-Open your browser at: **[http://localhost:3000](http://localhost:3000)**
-
----
-
-## 🧪 Automated Testing Details
-
-| Test Class | Focus Area | Technology |
-|---|---|---|
-| `BookingServiceTest` | Booking success, unavailable seats, cancellation > 1 hour rule, unauthorized access | JUnit 5, Mockito |
-| `BookingConcurrencyTest` | Simulates multi-threaded race condition on the same seat with `CountDownLatch` and `ExecutorService` | JUnit 5, Concurrency API |
-| `AuthServiceTest` | User registration, password hashing verification, duplicate rejection, JWT issuance | JUnit 5, Mockito |
-| `AuthControllerTest` | Jakarta Bean Validation, 201 Created, 400 Bad Request | Spring Boot `@WebMvcTest`, MockMvc |
-| `AdminSecurityTest` | Role-Based Access Control (`USER` gets 403 Forbidden, `ADMIN` gets 201 Created) | `@WebMvcTest`, `@WithMockUser` |
-
-To run only the concurrency test:
-```cmd
-mvn test -Dtest=BookingConcurrencyTest
+# JWT Secret Key (Minimum 32 characters)
+JWT_SECRET=super_secret_jwt_key_that_is_at_least_32_characters_long!
 ```
 
 ---
 
-## 📮 Postman Manual Testing
+### Backend Setup
 
-1. Open Postman.
-2. Click **Import** and select `postman/MovieBooking.postman_collection.json`.
-3. The collection includes pre-configured environment variables and test scripts that automatically save your JWT token upon login.
-4. Execute requests in order:
-   - `1. Authentication` → `Login User` (stores `userToken`)
-   - `2. Public Discovery` → `Search Shows by City / Movie`
-   - `2. Public Discovery` → `Get Live Seat Availability for Show`
-   - `3. Booking Flow (User)` → `Book Seats for Show`
-   - `3. Booking Flow (User)` → `Cancel Booking`
+1. Navigate to the `backend/` directory:
+   ```bash
+   cd backend
+   ```
+
+2. Run the test suite:
+   ```bash
+   ./mvnw clean test
+   ```
+
+3. Start the Spring Boot backend server:
+   ```bash
+   ./mvnw spring-boot:run
+   ```
+   *The backend starts at `http://localhost:8080`.*
+
+#### Pre-Seeded Default Accounts:
+- **Regular User**: Username: `john_doe` | Password: `User@123`
+- **Administrator**: Username: `admin` | Password: `Admin@123`
 
 ---
 
-## 💡 Top Interview Questions & How to Answer Them
+### Frontend Setup
 
-### Q1: How do you prevent double-booking in a high-concurrency ticket system?
-> **Answer**: We use a two-layer strategy. First, in the service layer, we acquire a pessimistic write lock using JPA's `LockModeType.PESSIMISTIC_WRITE` (`SELECT ... FOR UPDATE`), which serializes competing transactions on the requested seats. Second, at the database layer, the `booking_seats` table enforces a composite `UNIQUE(seat_id, show_id)` constraint, making it physically impossible for MySQL to record two active bookings for the same seat in the same show.
+1. In a separate terminal, navigate to the `frontend/` directory:
+   ```bash
+   cd frontend
+   ```
 
-### Q2: Why did you use DTOs instead of exposing JPA Entities?
-> **Answer**: Exposing entities leaks internal database schema, can cause Jackson circular reference serialization errors with bidirectional relationships, exposes sensitive fields (like password hashes), and prevents tailored validation annotations on incoming requests.
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
 
-### Q3: Why did you use BigDecimal for ticket pricing?
-> **Answer**: `float` and `double` use binary floating-point representation (IEEE 754) which causes rounding errors in monetary arithmetic (e.g. `0.1 + 0.2 = 0.30000000000000004`). `BigDecimal` provides exact precision required for currency and financial calculations.
+3. Launch the Vite development server:
+   ```bash
+   npm run dev
+   ```
+   *The frontend starts at `http://localhost:3000`.*
 
-### Q4: How is cancellation handled safely?
-> **Answer**: A booking can only be cancelled by its owner (or an admin) and only if the showtime is at least 1 hour in the future. Upon cancellation, the booking status transitions to `CANCELLED` and its records in `booking_seats` are deleted, immediately freeing those seats for other users to book without race conditions.
+---
+
+## 🧪 Testing & Quality Assurance
+
+The backend includes a comprehensive suite of automated unit, integration, and security tests:
+
+```bash
+cd backend
+./mvnw test
+```
+
+### Key Test Suites:
+- **`BookingConcurrencyTest`**: Simulates concurrent threads contending for the same seat using `CountDownLatch` and `ExecutorService` to verify that exactly one reservation succeeds and all others are safely rejected.
+- **`BookingServiceTest`**: Validates happy-path booking, seat availability checks, cancellation window rules (> 1 hour before showtime), and access control.
+- **`TmdbMovieServiceTest`**: Tests date-cutoff algorithms, region filtering, and fallback mechanisms when external APIs are unreachable.
+- **`AdminSecurityTest`**: Ensures role-based authorization constraints are enforced across admin and user endpoints.
+
+---
+
+## 📁 Project Structure
+
+```
+Movie ticket booking Project/
+├── .env.example                     # Environment template (safe for version control)
+├── .gitignore                       # Git ignore configuration
+├── README.md                        # Project documentation
+├── backend/                         # Spring Boot application
+│   ├── pom.xml                      # Maven configuration
+│   ├── mvnw.cmd / mvnw              # Maven wrapper executables
+│   └── src/
+│       ├── main/
+│       │   ├── java/com/moviebooking/
+│       │   │   ├── config/          # Security, CORS, DataInitializer, Swagger
+│       │   │   ├── controller/      # REST API Endpoints
+│       │   │   ├── dto/             # Request & Response Data Transfer Objects
+│       │   │   ├── entity/          # JPA Domain Entities
+│       │   │   ├── exception/       # Global Exception Handler & Custom Errors
+│       │   │   ├── repository/      # Spring Data JPA Repositories
+│       │   │   ├── security/        # JWT Authentication Filter & Token Provider
+│       │   │   ├── service/         # Business Logic & External Integrations
+│       │   │   └── util/            # Pricing, Scheduling & Coordinate Helpers
+│       │   └── resources/
+│       │       ├── application.properties
+│       │       ├── application-mysql.properties
+│       │       └── application-test.properties
+│       └── test/                    # Unit, Concurrency & Security Tests
+├── frontend/                        # React + Vite application
+│   ├── package.json                 # Dependencies & scripts
+│   ├── vite.config.js               # Vite bundler configuration
+│   └── src/
+│       ├── components/              # Navbar, CitySelectorModal, CinemaTracker
+│       ├── context/                 # AuthContext (JWT management)
+│       ├── pages/                   # HomePage, Search, Movies, MovieDetail,
+│       │                            # SeatSelection, BookingConfirmation, Bookings
+│       ├── services/                # Axios API client & Location service
+│       └── utils/                   # Poster fallbacks & helpers
+└── postman/                         # Postman API Collection
+    └── MovieBooking.postman_collection.json
+```
+
+---
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE). Feel free to use, modify, and distribute this codebase for educational and personal projects.
