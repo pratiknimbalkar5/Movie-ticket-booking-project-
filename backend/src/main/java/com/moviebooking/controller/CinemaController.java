@@ -24,8 +24,9 @@ public class CinemaController {
     private final OpenCinemaService openCinemaService;
 
     @GetMapping("/nearby")
-    @Operation(summary = "Discover nearby cinemas and shows by city or GPS coordinates (Open Cinema Platform + Google Places API + Local Inventory)")
+    @Operation(summary = "Discover nearby cinemas and shows by query, city, PIN code, or GPS coordinates")
     public ResponseEntity<ApiResponse<CinemaSearchResponse>> getNearbyCinemas(
+            @RequestParam(required = false) String query,
             @RequestParam(required = false) String city,
             @RequestParam(required = false) Double latitude,
             @RequestParam(required = false) Double longitude,
@@ -33,8 +34,9 @@ public class CinemaController {
             @RequestParam(required = false) Long movieId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
 
+        String effectiveLocation = (query != null && !query.isBlank()) ? query.trim() : city;
         CinemaSearchResponse response = googlePlacesService.discoverNearbyCinemas(
-                city, latitude, longitude, radiusKm, movieId, date
+                effectiveLocation, latitude, longitude, radiusKm, movieId, date
         );
         return ResponseEntity.ok(ApiResponse.success(response));
     }

@@ -1,12 +1,12 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   POPULAR_CITIES,
   INDIAN_REGIONS,
   ALL_INDIAN_CITIES,
   detectCurrentLocation,
   locateByPincodeOrArea,
-  LOCALITY_PRESETS,
 } from '../services/bmsLocationService';
+import { searchLocationSuggestions } from '../services/api';
 
 export default function CitySelectorModal({
   isOpen,
@@ -19,9 +19,39 @@ export default function CitySelectorModal({
   const [activeTab, setActiveTab] = useState('Popular Metros');
   const [detecting, setDetecting] = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
+  const [dynamicSuggestions, setDynamicSuggestions] = useState([]);
+  const [searchingRemote, setSearchingRemote] = useState(false);
+  const debounceRef = useRef(null);
 
   const pincodeOrLocalityMatch = useMemo(() => {
     return locateByPincodeOrArea(searchQuery);
+  }, [searchQuery]);
+
+  // Debounced dynamic location search for ANY Indian city, locality, PIN code, landmark
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2) {
+      setDynamicSuggestions([]);
+      setSearchingRemote(false);
+      return;
+    }
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      setSearchingRemote(true);
+      try {
+        const results = await searchLocationSuggestions(q, 6);
+        setDynamicSuggestions(results);
+      } catch (err) {
+        setDynamicSuggestions([]);
+      } finally {
+        setSearchingRemote(false);
+      }
+    }, 300);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
   }, [searchQuery]);
 
   // Handle GPS detection
@@ -34,7 +64,14 @@ export default function CitySelectorModal({
     if (res.success) {
       setStatusMsg(`📍 ${res.message}`);
       if (onLocationDetected) {
-        onLocationDetected({ latitude: res.latitude, longitude: res.longitude, neighborhood: res.neighborhood });
+        onLocationDetected({
+          latitude: res.latitude,
+          longitude: res.longitude,
+          neighborhood: res.neighborhood,
+          city: res.city,
+          state: res.state,
+          postcode: res.postcode
+        });
       }
       setTimeout(() => {
         onSelectCity(res.city);
@@ -44,6 +81,22 @@ export default function CitySelectorModal({
     } else {
       setStatusMsg(`⚠️ ${res.message}`);
     }
+  };
+
+  const handleSelectDynamicLocation = (loc) => {
+    const canonicalCity = loc.city || loc.name || searchQuery.trim();
+    if (onLocationDetected) {
+      onLocationDetected({
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+        neighborhood: loc.locality || loc.name,
+        city: canonicalCity,
+        state: loc.state,
+        postcode: loc.postcode,
+      });
+    }
+    onSelectCity(canonicalCity);
+    onClose();
   };
 
   // Filtered cities based on search
@@ -62,7 +115,8 @@ export default function CitySelectorModal({
 
   const isCustomCity =
     searchQuery.trim().length > 1 &&
-    !ALL_INDIAN_CITIES.some((c) => c.toLowerCase() === searchQuery.trim().toLowerCase());
+    !ALL_INDIAN_CITIES.some((c) => c.toLowerCase() === searchQuery.trim().toLowerCase()) &&
+    dynamicSuggestions.length === 0;
 
   if (!isOpen) return null;
 
@@ -202,6 +256,57 @@ export default function CitySelectorModal({
             ))}
           </div>
         )}
+        {/* Dynamic Pan-India Geocoded Suggestions */}
+        {searchingRemote && (
+          <div style={{ padding: '8px 24px', color: '#38bdf8', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>🌐</span> Searching Indian addresses &amp; landmarks...
+          </div>
+        )}
+
+        {dynamicSuggestions.length > 0 && (
+          <div style={{ padding: '8px 24px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '8px' }}>
+              📍 Verified Indian Addresses &amp; Localities:
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {dynamicSuggestions.map((loc, idx) => (
+                <div
+                  key={`${loc.name}-${loc.latitude}-${idx}`}
+                  onClick={() => handleSelectDynamicLocation(loc)}
+                  style={{
+                    background: 'rgba(15, 23, 42, 0.85)',
+                    border: '1px solid rgba(56, 189, 248, 0.35)',
+                    borderRadius: '8px',
+                    padding: '10px 14px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    transition: 'all 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#38bdf8')}
+                  onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'rgba(56, 189, 248, 0.35)')}
+                >
+                  <div style={{ flex: 1, minWidth: 0, paddingRight: '12px' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 700, color: '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      📍 {loc.name || loc.locality || loc.city}
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {loc.displayName}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#38bdf8', marginTop: '2px' }}>
+                      {loc.city ? `City: ${loc.city}` : ''} {loc.state ? `• ${loc.state}` : ''} {loc.postcode ? `• PIN: ${loc.postcode}` : ''}
+                    </div>
+                  </div>
+                  <span style={{ fontSize: '12px', color: '#38bdf8', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                    Select →
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Pincode or Locality Match Result */}
         {pincodeOrLocalityMatch && (
           <div style={{ padding: '8px 24px' }}>

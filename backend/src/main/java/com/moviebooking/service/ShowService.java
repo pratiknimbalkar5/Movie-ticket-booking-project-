@@ -128,19 +128,27 @@ public class ShowService {
                 int totalSeats = (s.getScreen().getTotalSeats() != null) ? s.getScreen().getTotalSeats() : 86;
                 int bookedSeats = bookingSeatRepository.findBookedSeatIdsByShowId(s.getId()).size();
                 int availableSeats = Math.max(0, totalSeats - bookedSeats);
+                String format = s.getScreen().getName().contains("IMAX") ? "IMAX Laser 3D"
+                        : s.getScreen().getName().contains("Atmos") ? "Dolby Atmos 7.1" : "2D Digital";
 
                 return NearbyTheatreShowsResponse.NearbyShowItem.builder()
                         .showId(s.getId())
                         .movieId(s.getMovie().getId())
                         .movieTitle(s.getMovie().getTitle())
+                        .moviePosterUrl(s.getMovie().getPosterUrl())
                         .movieLanguage(s.getMovie().getLanguage())
                         .screenName(s.getScreen().getName())
+                        .screenFormat(format)
                         .showTime(s.getShowTime())
                         .basePrice(s.getBasePrice())
                         .premiumPrice(s.getPremiumPrice())
                         .vipPrice(s.getVipPrice())
                         .totalSeats(totalSeats)
                         .availableSeats(availableSeats)
+                        .dataSource("PARTNER_DEMO_SCHEDULE")
+                        .priceNote("₹" + s.getBasePrice() + " - ₹" + s.getVipPrice())
+                        .seatAvailabilityNote(availableSeats + " seats left")
+                        .officialBookingUrl("/seat-selection/" + s.getId())
                         .build();
             }).toList();
 
@@ -218,19 +226,27 @@ public class ShowService {
                 int totalSeats = (s.getScreen().getTotalSeats() != null) ? s.getScreen().getTotalSeats() : 86;
                 int bookedSeats = bookingSeatRepository.findBookedSeatIdsByShowId(s.getId()).size();
                 int availableSeats = Math.max(0, totalSeats - bookedSeats);
+                String format = s.getScreen().getName().contains("IMAX") ? "IMAX Laser 3D"
+                        : s.getScreen().getName().contains("Atmos") ? "Dolby Atmos 7.1" : "2D Digital";
 
                 return NearbyTheatreShowsResponse.NearbyShowItem.builder()
                         .showId(s.getId())
                         .movieId(s.getMovie().getId())
                         .movieTitle(s.getMovie().getTitle())
+                        .moviePosterUrl(s.getMovie().getPosterUrl())
                         .movieLanguage(s.getMovie().getLanguage())
                         .screenName(s.getScreen().getName())
+                        .screenFormat(format)
                         .showTime(s.getShowTime())
                         .basePrice(s.getBasePrice())
                         .premiumPrice(s.getPremiumPrice())
                         .vipPrice(s.getVipPrice())
                         .totalSeats(totalSeats)
                         .availableSeats(availableSeats)
+                        .dataSource("PARTNER_DEMO_SCHEDULE")
+                        .priceNote("₹" + s.getBasePrice() + " - ₹" + s.getVipPrice())
+                        .seatAvailabilityNote(availableSeats + " seats left")
+                        .officialBookingUrl("/seat-selection/" + s.getId())
                         .build();
             }).toList();
 

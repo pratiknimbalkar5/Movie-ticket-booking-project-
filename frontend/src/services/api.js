@@ -35,4 +35,38 @@ api.interceptors.response.use(
   }
 );
 
+// Pan-India Dynamic Location & Cinema API Methods
+export const searchLocationSuggestions = async (query, limit = 6) => {
+  if (!query || !query.trim()) return [];
+  try {
+    const res = await api.get(`/location/search?query=${encodeURIComponent(query.trim())}&limit=${limit}`);
+    return res.data?.data || [];
+  } catch (err) {
+    return [];
+  }
+};
+
+export const reverseGeocodeCoordinates = async (lat, lon) => {
+  try {
+    const res = await api.get(`/location/reverse?lat=${lat}&lon=${lon}`);
+    return res.data?.data || null;
+  } catch (err) {
+    return null;
+  }
+};
+
+export const fetchNearbyCinemas = async ({ query = '', city = '', latitude = null, longitude = null, radiusKm = 15, date = '', movieId = null }) => {
+  const params = new URLSearchParams();
+  if (query && query.trim()) params.append('query', query.trim());
+  if (city && city.trim()) params.append('city', city.trim());
+  if (latitude != null) params.append('latitude', latitude);
+  if (longitude != null) params.append('longitude', longitude);
+  if (radiusKm != null) params.append('radiusKm', radiusKm);
+  if (date) params.append('date', date);
+  if (movieId != null) params.append('movieId', movieId);
+
+  const res = await api.get(`/cinemas/nearby?${params.toString()}`);
+  return res.data?.data || null;
+};
+
 export default api;

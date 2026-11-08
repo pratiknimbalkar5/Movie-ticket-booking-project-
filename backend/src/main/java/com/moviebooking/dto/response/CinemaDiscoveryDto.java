@@ -33,8 +33,16 @@ public class CinemaDiscoveryDto {
     private Long theatreId;            // Local database Theatre ID if registered
     private boolean hasBookableShows;  // True if active scheduled shows exist
     private String cinemaType;         // "BOOKABLE_PARTNER" | "REGISTERED_THEATRE" | "EXTERNAL_DISCOVERY"
-    private String sourceProvider;     // "OPEN_CINEMA_PLATFORM" | "GOOGLE_PLACES" | "LOCAL_DATABASE"
+    private String sourceProvider;     // "OPEN_CINEMA_PLATFORM" | "GOOGLE_PLACES" | "OPENSTREETMAP" | "LOCAL_DATABASE"
     private String externalSourceUri;  // Link to official source / cinema portal
+
+    // Data Transparency & Honesty Fields
+    private String cinemaChain;         // Cinema chain (e.g., "PVR", "INOX", "Cinepolis", "Carnival", "Miraj")
+    private String dataSource;          // "VERIFIED_LIVE_PROVIDER" | "PARTNER_DEMO_SCHEDULE" | "EXTERNAL_DIRECTORY"
+    private String lastUpdated;         // ISO timestamp of last data fetch
+    private String officialBookingUrl;  // Direct booking link or Google Maps reservation portal
+    private String priceNote;           // "Real-time pricing available" or "Not provided by cinema data source"
+    private String seatAvailabilityNote;// "Real-time seat map available" or "Not provided by cinema data source"
 
     // Real showtimes if bookable
     private List<NearbyTheatreShowsResponse.NearbyShowItem> shows;

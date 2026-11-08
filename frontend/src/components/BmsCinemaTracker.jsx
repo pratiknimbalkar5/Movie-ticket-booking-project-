@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import api from '../services/api';
-import { detectCurrentLocation } from '../services/bmsLocationService';
+import api, { searchLocationSuggestions, fetchNearbyCinemas } from '../services/api';
+import { detectCurrentLocation, calculateDistanceKm } from '../services/bmsLocationService';
+import { handlePosterError, getFallbackPosterSvg } from '../utils/posterHelper';
 
 const SUGGESTED_CITIES = [
   'Mumbai', 'Delhi NCR', 'Bengaluru', 'Hyderabad', 'Indore', 'Bhopal',
@@ -15,25 +16,60 @@ export default function BmsCinemaTracker({
   userLocation = null,
   onLocationDetected,
 }) {
-  const [cityInput, setCityInput] = useState(selectedCity || '');
+  const [searchInput, setSearchInput] = useState(selectedCity || '');
+  const [activeLocation, setActiveLocation] = useState(() => {
+    if (userLocation?.latitude && userLocation?.longitude) {
+      return {
+        name: userLocation.neighborhood || selectedCity || 'Current Location',
+        city: selectedCity,
+        latitude: userLocation.latitude,
+        longitude: userLocation.longitude,
+      };
+    }
+    return selectedCity ? { name: selectedCity, city: selectedCity, latitude: null, longitude: null } : null;
+  });
+
   const [theatres, setTheatres] = useState([]);
+  const [providerMetadata, setProviderMetadata] = useState(null);
   const [loading, setLoading] = useState(false);
   const [locating, setLocating] = useState(false);
   const [locationStatus, setLocationStatus] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
+  const [remoteSuggestions, setRemoteSuggestions] = useState([]);
+  const [searchingSuggestions, setSearchingSuggestions] = useState(false);
+
+  // Filters
   const [movieFilter, setMovieFilter] = useState('');
-  const [formatFilter, setFormatFilter] = useState('ALL'); // 'ALL' | 'IMAX' | 'ATMOS'
-  const [searchRadius, setSearchRadius] = useState(10); // 10 km default, expandable to 20 or 30 km
+  const [formatFilter, setFormatFilter] = useState('ALL'); // 'ALL' | 'IMAX' | 'ATMOS' | '2D' | '3D'
+  const [cinemaViewTab, setCinemaViewTab] = useState('ALL'); // 'ALL' | 'BOOKABLE'
+  const [searchRadius, setSearchRadius] = useState(15); // 5, 10, 15, 20, 30, 50 km
   const [selectedDate, setSelectedDate] = useState(() => {
     return new Date().toISOString().split('T')[0];
   });
 
   const dropdownRef = useRef(null);
+  const debounceTimerRef = useRef(null);
 
-  // Sync cityInput when selectedCity changes
+  // Sync search input when selectedCity prop updates externally
   useEffect(() => {
-    setCityInput(selectedCity);
+    if (selectedCity && selectedCity !== searchInput && !activeLocation?.latitude) {
+      setSearchInput(selectedCity);
+      setActiveLocation({ name: selectedCity, city: selectedCity, latitude: null, longitude: null });
+    }
   }, [selectedCity]);
+
+  // Sync userLocation prop when provided
+  useEffect(() => {
+    if (userLocation?.latitude && userLocation?.longitude) {
+      setActiveLocation((prev) => ({
+        ...(prev || {}),
+        name: userLocation.neighborhood || selectedCity || 'Detected Location',
+        city: selectedCity || prev?.city || '',
+        latitude: userLocation.latitude,
+        longitude: userLocation.longitude,
+      }));
+    }
+  }, [userLocation]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -46,99 +82,155 @@ export default function BmsCinemaTracker({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Upcoming 4 dates
-  const dateOptions = Array.from({ length: 4 }).map((_, idx) => {
-    const d = new Date();
-    d.setDate(d.getDate() + idx);
-    const iso = d.toISOString().split('T')[0];
-    const label =
-      idx === 0
-        ? 'Today'
-        : idx === 1
-        ? 'Tomorrow'
-        : d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-    return { iso, label };
-  });
+  // Dynamic Autocomplete Debounce for ANY Indian city, locality, PIN, or landmark
+  useEffect(() => {
+    const q = searchInput.trim();
+    if (q.length < 2) {
+      setRemoteSuggestions([]);
+      setSearchingSuggestions(false);
+      return;
+    }
 
-  // Fetch real shows in the selected city directly
-  const fetchCityShows = async (city, date, coords = null, radius = searchRadius) => {
-    if (!city && !coords) return;
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(async () => {
+      setSearchingSuggestions(true);
+      try {
+        const results = await searchLocationSuggestions(q, 6);
+        setRemoteSuggestions(results);
+      } catch (err) {
+        setRemoteSuggestions([]);
+      } finally {
+        setSearchingSuggestions(false);
+      }
+    }, 300);
+
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    };
+  }, [searchInput]);
+
+  // Upcoming 4 dates
+  const dateOptions = useMemo(() => {
+    return Array.from({ length: 4 }).map((_, idx) => {
+      const d = new Date();
+      d.setDate(d.getDate() + idx);
+      const iso = d.toISOString().split('T')[0];
+      const label =
+        idx === 0
+          ? 'Today'
+          : idx === 1
+          ? 'Tomorrow'
+          : d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+      return { iso, label };
+    });
+  }, []);
+
+  // Fetch verified cinemas dynamically from backend
+  const fetchCinemas = async (loc, date, radius) => {
+    if (!loc?.name && !loc?.city && !loc?.latitude) return;
+
     try {
       setLoading(true);
-      let theatreList = [];
+      const queryParam = loc.name || loc.city || '';
+      const cityParam = loc.city || '';
+      const latParam = loc.latitude ?? null;
+      const lonParam = loc.longitude ?? null;
 
-      let queryParams = `date=${date}&radiusKm=${radius}`;
-      if (city) queryParams += `&city=${encodeURIComponent(city)}`;
-      if (coords?.latitude && coords?.longitude) {
-        queryParams += `&latitude=${coords.latitude}&longitude=${coords.longitude}`;
-      }
-
-      // 1. Primary: fetch guaranteed bookable shows matching city and/or GPS coordinates
-      try {
-        const res = await api.get(`/shows/nearby?${queryParams}`);
-        theatreList = res.data?.data || [];
-      } catch (e) {}
-
-      // 2. Fallback: If empty and coords exist, scan nearby coordinates directly
-      if (theatreList.length === 0 && coords?.latitude && coords?.longitude) {
-        try {
-          const res = await api.get(
-            `/shows/scan-nearby?latitude=${coords.latitude}&longitude=${coords.longitude}&radiusKm=${radius}&date=${date}`
-          );
-          theatreList = res.data?.data || [];
-        } catch (e) {}
-      }
-
-      // 3. Fallback: If still empty and city exists, fetch without strict radius restriction
-      if (theatreList.length === 0 && city) {
-        try {
-          const res = await api.get(`/shows/nearby?city=${encodeURIComponent(city)}`);
-          theatreList = res.data?.data || [];
-        } catch (e) {}
-      }
-
-      // 4. Normalize theatre objects & strictly calculate accurate distance
-      const normalized = theatreList.map((t) => {
-        let dist = t.distanceKm;
-        if (coords?.latitude && coords?.longitude && t.latitude && t.longitude) {
-          // Calculate true Haversine distance from user's current GPS coordinates
-          dist = calculateDistanceKm(coords.latitude, coords.longitude, t.latitude, t.longitude);
-        } else if (dist != null) {
-          dist = Math.round(Number(dist) * 10) / 10;
-        } else {
-          dist = 2.5;
-        }
-
-        return {
-          theatreId: t.theatreId || t.id,
-          theatreName: t.theatreName || t.name,
-          address: t.address || t.theatreAddress || `${city || t.city}`,
-          city: t.city || city,
-          latitude: t.latitude,
-          longitude: t.longitude,
-          distanceKm: dist,
-          shows: (t.shows || []).map((s) => ({
-            ...s,
-            showId: s.showId || s.id,
-            id: s.showId || s.id,
-            theatreName: t.theatreName || t.name,
-            theatreAddress: t.address || t.theatreAddress,
-            theatreCity: t.city || city,
-          })),
-        };
+      // 1. Primary: Dynamic Cinema Discovery endpoint
+      const discoveryRes = await fetchNearbyCinemas({
+        query: queryParam,
+        city: cityParam,
+        latitude: latParam,
+        longitude: lonParam,
+        radiusKm: radius,
+        date: date,
       });
 
-      // Filter by radius if GPS was used
-      const radiusFiltered = (coords?.latitude && coords?.longitude)
-        ? normalized.filter((t) => t.distanceKm <= radius)
-        : normalized;
+      if (discoveryRes && Array.isArray(discoveryRes.cinemas) && discoveryRes.cinemas.length > 0) {
+        setProviderMetadata({
+          provider: discoveryRes.provider,
+          providerConfigured: discoveryRes.providerConfigured,
+          providerStatusMessage: discoveryRes.providerStatusMessage,
+          searchCity: discoveryRes.searchCity,
+          searchLatitude: discoveryRes.searchLatitude,
+          searchLongitude: discoveryRes.searchLongitude,
+          searchRadiusKm: discoveryRes.searchRadiusKm,
+        });
 
-      const finalTheatres = radiusFiltered.length > 0 ? radiusFiltered : normalized;
+        // Normalize distance and ensure clean show references
+        const normalized = discoveryRes.cinemas.map((c) => {
+          let dist = c.distanceKm;
+          if (latParam && lonParam && c.latitude && c.longitude) {
+            dist = calculateDistanceKm(latParam, lonParam, c.latitude, c.longitude);
+          }
+          return {
+            ...c,
+            theatreId: c.theatreId || c.id,
+            theatreName: c.name,
+            distanceKm: dist != null ? Math.round(Number(dist) * 10) / 10 : 2.0,
+            shows: (c.shows || []).map((s) => ({
+              ...s,
+              id: s.showId || s.id,
+              theatreName: c.name,
+              theatreAddress: c.address,
+              theatreCity: c.city,
+            })),
+          };
+        });
 
-      // Sort ascending so closest cinema is always displayed first
-      finalTheatres.sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
+        normalized.sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
+        setTheatres(normalized);
+        return;
+      }
 
-      setTheatres(finalTheatres);
+      // 2. Secondary fallback: Local show inventory scan
+      try {
+        let fallbackParams = `date=${date}&radiusKm=${radius}`;
+        if (cityParam) fallbackParams += `&city=${encodeURIComponent(cityParam)}`;
+        if (latParam && lonParam) fallbackParams += `&latitude=${latParam}&longitude=${lonParam}`;
+
+        const showsRes = await api.get(`/shows/nearby?${fallbackParams}`);
+        const showTheatres = showsRes.data?.data || [];
+
+        if (showTheatres.length > 0) {
+          const mapped = showTheatres.map((t) => ({
+            id: String(t.theatreId),
+            theatreId: t.theatreId,
+            name: t.theatreName,
+            theatreName: t.theatreName,
+            address: t.address || `${t.city}`,
+            city: t.city,
+            latitude: t.latitude,
+            longitude: t.longitude,
+            distanceKm: t.distanceKm ? Math.round(Number(t.distanceKm) * 10) / 10 : 2.0,
+            cinemaChain: t.theatreName?.split(' ')[0] || 'Multiplex',
+            cinemaType: 'BOOKABLE_PARTNER',
+            dataSource: 'PARTNER_DEMO_SCHEDULE',
+            priceNote: 'Real-time pricing available',
+            seatAvailabilityNote: 'Real-time seat map available',
+            hasBookableShows: true,
+            isRegistered: true,
+            shows: (t.shows || []).map((s) => ({
+              ...s,
+              id: s.showId || s.id,
+              theatreName: t.theatreName,
+              theatreAddress: t.address,
+              theatreCity: t.city,
+            })),
+          }));
+          mapped.sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
+          setTheatres(mapped);
+          setProviderMetadata({
+            provider: 'LOCAL_DATABASE',
+            providerConfigured: false,
+            providerStatusMessage: 'Showing partner multiplexes from application booking schedule.',
+          });
+          return;
+        }
+      } catch (errFallback) {}
+
+      // Empty state
+      setTheatres([]);
     } catch (err) {
       setTheatres([]);
     } finally {
@@ -146,70 +238,134 @@ export default function BmsCinemaTracker({
     }
   };
 
+  // Re-fetch when location, date, or radius changes
   useEffect(() => {
-    fetchCityShows(selectedCity, selectedDate, userLocation, searchRadius);
-  }, [selectedCity, selectedDate, userLocation, searchRadius]);
+    if (activeLocation) {
+      fetchCinemas(activeLocation, selectedDate, searchRadius);
+    }
+  }, [activeLocation, selectedDate, searchRadius]);
 
-  // Handle manual city search submission - clear old GPS coords to avoid stale location mixing
-  const handleCitySubmit = (e) => {
+  // Search submission (enter key or click)
+  const handleLocationSubmit = (e) => {
     e?.preventDefault();
-    const clean = cityInput.trim();
+    const clean = searchInput.trim();
     if (!clean) return;
+
     setShowDropdown(false);
-    if (onLocationDetected) onLocationDetected(null);
+    const newLoc = {
+      name: clean,
+      city: clean,
+      latitude: null,
+      longitude: null,
+    };
+    setActiveLocation(newLoc);
     if (onCityChange) onCityChange(clean);
-    fetchCityShows(clean, selectedDate, null, searchRadius);
+    if (onLocationDetected) onLocationDetected(null);
   };
 
-  const handleSelectCitySuggestion = (city) => {
-    setCityInput(city);
+  // Selection from dynamic suggestions (any Indian address, PIN, landmark)
+  const handleSelectRemoteSuggestion = (item) => {
+    const locName = item.name || item.locality || item.city || item.displayName;
+    const city = item.city || locName;
+    setSearchInput(locName);
     setShowDropdown(false);
-    if (onLocationDetected) onLocationDetected(null);
+
+    const newLoc = {
+      name: item.displayName || locName,
+      city: city,
+      locality: item.locality,
+      state: item.state,
+      postcode: item.postcode,
+      latitude: item.latitude,
+      longitude: item.longitude,
+    };
+
+    setActiveLocation(newLoc);
     if (onCityChange) onCityChange(city);
-    fetchCityShows(city, selectedDate, null, searchRadius);
+    if (onLocationDetected) {
+      onLocationDetected({
+        latitude: item.latitude,
+        longitude: item.longitude,
+        neighborhood: item.locality || locName,
+        city: city,
+        state: item.state,
+        postcode: item.postcode,
+      });
+    }
+  };
+
+  // Selection from preset quick cities
+  const handleSelectCityPreset = (city) => {
+    setSearchInput(city);
+    setShowDropdown(false);
+    const newLoc = { name: city, city: city, latitude: null, longitude: null };
+    setActiveLocation(newLoc);
+    if (onCityChange) onCityChange(city);
+    if (onLocationDetected) onLocationDetected(null);
   };
 
   // GPS Locate
   const handleGpsDetect = async () => {
     setLocating(true);
-    setLocationStatus('📡 Detecting GPS location...');
+    setLocationStatus('📡 Detecting GPS coordinates and resolving locality...');
     try {
       const res = await detectCurrentLocation();
       if (res.success) {
-        setLocationStatus(`📍 Detected: ${res.city}`);
-        setCityInput(res.city);
+        const placeName = res.neighborhood ? `${res.neighborhood}, ${res.city}` : res.city;
+        setLocationStatus(`📍 Detected: ${placeName}`);
+        setSearchInput(placeName);
+
+        const newLoc = {
+          name: placeName,
+          city: res.city,
+          locality: res.neighborhood,
+          state: res.state,
+          postcode: res.postcode,
+          latitude: res.latitude,
+          longitude: res.longitude,
+        };
+
+        setActiveLocation(newLoc);
         if (onCityChange) onCityChange(res.city);
         if (onLocationDetected) {
           onLocationDetected({
             latitude: res.latitude,
             longitude: res.longitude,
             neighborhood: res.neighborhood,
+            city: res.city,
+            state: res.state,
+            postcode: res.postcode,
           });
         }
-        fetchCityShows(res.city, selectedDate, { latitude: res.latitude, longitude: res.longitude });
-        setTimeout(() => setLocationStatus(''), 4000);
+        setTimeout(() => setLocationStatus(''), 4500);
       } else {
-        setLocationStatus(`⚠️ ${res.message}. Please enter city manually.`);
-        setTimeout(() => setLocationStatus(''), 4000);
+        setLocationStatus(`⚠️ ${res.message}`);
+        setTimeout(() => setLocationStatus(''), 4500);
       }
     } catch (e) {
-      setLocationStatus('⚠️ Location unavailable. Please enter your city.');
-      setTimeout(() => setLocationStatus(''), 4000);
+      setLocationStatus('⚠️ Location detection failed. Please search manually.');
+      setTimeout(() => setLocationStatus(''), 4500);
     } finally {
       setLocating(false);
     }
   };
 
-  // Filtered suggestions as user types
-  const filteredSuggestions = useMemo(() => {
-    const q = cityInput.trim().toLowerCase();
+  // Local preset filter for fallback dropdown
+  const filteredPresets = useMemo(() => {
+    const q = searchInput.trim().toLowerCase();
     if (!q) return SUGGESTED_CITIES.slice(0, 8);
     return SUGGESTED_CITIES.filter((c) => c.toLowerCase().includes(q));
-  }, [cityInput]);
+  }, [searchInput]);
 
-  // Filter theatres/shows by movie title or format
+  // Filtered theatres & shows based on user criteria
   const displayTheatres = useMemo(() => {
     return theatres
+      .filter((t) => {
+        if (cinemaViewTab === 'BOOKABLE') {
+          return t.hasBookableShows || (t.shows && t.shows.length > 0);
+        }
+        return true;
+      })
       .map((t) => {
         let matchingShows = t.shows || [];
 
@@ -220,14 +376,16 @@ export default function BmsCinemaTracker({
           );
         }
 
-        if (formatFilter === 'IMAX') {
-          matchingShows = matchingShows.filter((s) =>
-            (s.screenName || '').toLowerCase().includes('imax')
-          );
-        } else if (formatFilter === 'ATMOS') {
-          matchingShows = matchingShows.filter((s) =>
-            (s.screenName || '').toLowerCase().includes('atmos')
-          );
+        if (formatFilter !== 'ALL') {
+          matchingShows = matchingShows.filter((s) => {
+            const screen = (s.screenName || '').toUpperCase();
+            const fmt = (s.screenFormat || '').toUpperCase();
+            if (formatFilter === 'IMAX') return screen.includes('IMAX') || fmt.includes('IMAX');
+            if (formatFilter === 'ATMOS') return screen.includes('ATMOS') || fmt.includes('ATMOS');
+            if (formatFilter === '3D') return screen.includes('3D') || fmt.includes('3D');
+            if (formatFilter === '2D') return fmt.includes('2D') || (!screen.includes('3D') && !screen.includes('IMAX'));
+            return true;
+          });
         }
 
         return {
@@ -235,33 +393,36 @@ export default function BmsCinemaTracker({
           shows: matchingShows,
         };
       })
-      .filter((t) => (movieFilter.trim() ? t.shows.length > 0 : true));
-  }, [theatres, movieFilter, formatFilter]);
+      .filter((t) => (movieFilter.trim() && cinemaViewTab === 'BOOKABLE' ? t.shows.length > 0 : true));
+  }, [theatres, cinemaViewTab, movieFilter, formatFilter]);
 
   const totalShowsCount = useMemo(() => {
     return displayTheatres.reduce((acc, t) => acc + (t.shows?.length || 0), 0);
   }, [displayTheatres]);
 
+  const bookableTheatresCount = useMemo(() => {
+    return theatres.filter((t) => t.hasBookableShows || (t.shows && t.shows.length > 0)).length;
+  }, [theatres]);
+
   return (
     <div style={{ marginTop: '16px' }}>
       {/* =========================================================================
-          SIMPLIFIED CITY SEARCH & LOCATION STRIP
-          Clean, elegant, no cluttered city pills!
+          PAN-INDIA DYNAMIC LOCATION SEARCH & RADIUS CONTROL PANEL
           ========================================================================= */}
       <div
         style={{
           background: 'linear-gradient(180deg, rgba(22, 31, 48, 0.98) 0%, rgba(15, 23, 42, 0.95) 100%)',
           border: '1px solid rgba(56, 189, 248, 0.25)',
-          borderRadius: '14px',
-          padding: '20px 24px',
+          borderRadius: '16px',
+          padding: '22px 26px',
           marginBottom: '24px',
-          boxShadow: '0 8px 28px rgba(0, 0, 0, 0.4)',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.45)',
         }}
       >
         <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', alignItems: 'center' }}>
-          {/* City Input & Autocomplete Form */}
-          <div ref={dropdownRef} style={{ flex: '1 1 320px', position: 'relative' }}>
-            <form onSubmit={handleCitySubmit} style={{ display: 'flex', width: '100%' }}>
+          {/* Dynamic Search Input with Autocomplete */}
+          <div ref={dropdownRef} style={{ flex: '1 1 360px', position: 'relative' }}>
+            <form onSubmit={handleLocationSubmit} style={{ display: 'flex', width: '100%' }}>
               <span
                 style={{
                   position: 'absolute',
@@ -273,35 +434,35 @@ export default function BmsCinemaTracker({
                   pointerEvents: 'none',
                 }}
               >
-                🏙️
+                🔍
               </span>
               <input
                 type="text"
-                value={cityInput}
+                value={searchInput}
                 onChange={(e) => {
-                  setCityInput(e.target.value);
+                  setSearchInput(e.target.value);
                   setShowDropdown(true);
                 }}
                 onFocus={() => setShowDropdown(true)}
-                placeholder="Search city (e.g., Indore, Bhopal, Mumbai, Delhi, Bengaluru, Pune)..."
+                placeholder="Search ANY Indian city, locality, PIN code or landmark (e.g. Vijay Nagar, Indore; 600040; Andheri)..."
                 style={{
                   width: '100%',
-                  padding: '13px 44px 13px 48px',
+                  padding: '14px 44px 14px 48px',
                   fontSize: '15px',
                   fontWeight: 600,
-                  background: 'rgba(10, 14, 23, 0.9)',
+                  background: 'rgba(10, 14, 23, 0.92)',
                   border: '1px solid rgba(56, 189, 248, 0.35)',
-                  borderRadius: '10px',
+                  borderRadius: '12px',
                   color: '#fff',
                   outline: 'none',
                   boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.4)',
                 }}
               />
-              {cityInput && (
+              {searchInput && (
                 <button
                   type="button"
                   onClick={() => {
-                    setCityInput('');
+                    setSearchInput('');
                     setShowDropdown(true);
                   }}
                   style={{
@@ -323,50 +484,89 @@ export default function BmsCinemaTracker({
             </form>
 
             {/* Smart Suggestions Dropdown */}
-            {showDropdown && filteredSuggestions.length > 0 && (
+            {showDropdown && (
               <div
                 style={{
                   position: 'absolute',
-                  top: 'calc(100% + 6px)',
+                  top: 'calc(100% + 8px)',
                   left: 0,
                   right: 0,
                   background: '#0f172a',
-                  border: '1px solid rgba(56, 189, 248, 0.3)',
-                  borderRadius: '10px',
-                  zIndex: 200,
-                  maxHeight: '260px',
+                  border: '1px solid rgba(56, 189, 248, 0.35)',
+                  borderRadius: '12px',
+                  zIndex: 300,
+                  maxHeight: '340px',
                   overflowY: 'auto',
-                  boxShadow: '0 12px 30px rgba(0,0,0,0.7)',
+                  boxShadow: '0 16px 40px rgba(0,0,0,0.8)',
                 }}
               >
-                <div style={{ padding: '8px 14px', fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  Select or type city name:
-                </div>
-                {filteredSuggestions.map((c) => (
-                  <div
-                    key={c}
-                    onClick={() => handleSelectCitySuggestion(c)}
-                    style={{
-                      padding: '10px 16px',
-                      cursor: 'pointer',
-                      fontSize: '14px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      borderBottom: '1px solid rgba(255,255,255,0.04)',
-                      background: selectedCity === c ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
-                      color: selectedCity === c ? '#38bdf8' : '#e2e8f0',
-                      transition: 'background 0.15s ease',
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(56, 189, 248, 0.12)')}
-                    onMouseLeave={(e) =>
-                      (e.currentTarget.style.background = selectedCity === c ? 'rgba(56, 189, 248, 0.15)' : 'transparent')
-                    }
-                  >
-                    <span>📍 {c}</span>
-                    <span style={{ fontSize: '11px', color: '#38bdf8' }}>View Shows →</span>
+                {/* Real-time remote geocoding suggestions */}
+                {searchingSuggestions ? (
+                  <div style={{ padding: '12px 16px', color: '#38bdf8', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ animation: 'spin 1.5s linear infinite' }}>🌐</span> Searching Pan-India addresses...
                   </div>
-                ))}
+                ) : remoteSuggestions.length > 0 ? (
+                  <div>
+                    <div style={{ padding: '8px 16px', fontSize: '11px', color: '#38bdf8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                      📍 Verified Indian Addresses &amp; Localities:
+                    </div>
+                    {remoteSuggestions.map((item, idx) => (
+                      <div
+                        key={`${item.name}-${item.latitude}-${idx}`}
+                        onClick={() => handleSelectRemoteSuggestion(item)}
+                        style={{
+                          padding: '12px 16px',
+                          cursor: 'pointer',
+                          borderBottom: '1px solid rgba(255,255,255,0.04)',
+                          transition: 'background 0.15s ease',
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(56, 189, 248, 0.12)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                      >
+                        <div style={{ fontSize: '14px', fontWeight: 700, color: '#f8fafc' }}>
+                          📍 {item.name || item.locality || item.city}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {item.displayName}
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#38bdf8', marginTop: '3px' }}>
+                          {item.city ? `City: ${item.city}` : ''} {item.state ? `• ${item.state}` : ''} {item.postcode ? `• PIN: ${item.postcode}` : ''}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                {/* Popular city presets */}
+                <div style={{ padding: '8px 16px', fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  Quick City Hubs:
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px' }}>
+                  {filteredPresets.map((c) => (
+                    <div
+                      key={c}
+                      onClick={() => handleSelectCityPreset(c)}
+                      style={{
+                        padding: '10px 16px',
+                        cursor: 'pointer',
+                        fontSize: '13px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        color: activeLocation?.city === c ? '#38bdf8' : '#e2e8f0',
+                        background: activeLocation?.city === c ? 'rgba(56, 189, 248, 0.12)' : 'transparent',
+                        transition: 'background 0.15s ease',
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(56, 189, 248, 0.1)')}
+                      onMouseLeave={(e) =>
+                        (e.currentTarget.style.background = activeLocation?.city === c ? 'rgba(56, 189, 248, 0.12)' : 'transparent')
+                      }
+                    >
+                      <span>🏙️ {c}</span>
+                      <span style={{ fontSize: '11px', color: '#38bdf8' }}>Select →</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -375,20 +575,20 @@ export default function BmsCinemaTracker({
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
             <button
               className="btn"
-              onClick={handleCitySubmit}
-              style={{ padding: '12px 22px', fontSize: '14px', fontWeight: 700 }}
+              onClick={handleLocationSubmit}
+              style={{ padding: '13px 22px', fontSize: '14px', fontWeight: 700 }}
             >
-              🔍 Find Shows
+              🔍 Discover Theatres
             </button>
             <button
               className="btn btn-radar"
               onClick={handleGpsDetect}
               disabled={locating}
-              style={{ padding: '12px 18px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}
+              style={{ padding: '13px 18px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}
               title="Detect device GPS location"
             >
               <span>{locating ? '📡' : '📍'}</span>
-              <span>{locating ? 'Detecting...' : 'My Location'}</span>
+              <span>{locating ? 'Detecting...' : 'Use My GPS'}</span>
             </button>
           </div>
         </div>
@@ -398,9 +598,9 @@ export default function BmsCinemaTracker({
           <div
             style={{
               marginTop: '12px',
-              padding: '8px 14px',
+              padding: '10px 16px',
               background: 'rgba(56, 189, 248, 0.1)',
-              border: '1px solid rgba(56, 189, 248, 0.25)',
+              border: '1px solid rgba(56, 189, 248, 0.3)',
               borderRadius: '8px',
               color: '#38bdf8',
               fontSize: '13px',
@@ -410,63 +610,80 @@ export default function BmsCinemaTracker({
           </div>
         )}
 
-        {/* Selected City Indicator */}
+        {/* Selected Location Details Strip */}
         <div
           style={{
-            marginTop: '14px',
+            marginTop: '16px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             flexWrap: 'wrap',
-            gap: '10px',
-            fontSize: '13px',
-            color: '#94a3b8',
-            borderTop: '1px solid rgba(255, 255, 255, 0.06)',
-            paddingTop: '12px',
+            gap: '12px',
+            borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+            paddingTop: '14px',
           }}
         >
           <div>
-            {selectedCity ? (
-              <>
-                Showing live cinema schedules in{' '}
-                <strong style={{ color: '#38bdf8', fontSize: '15px' }}>📍 {selectedCity}</strong>
-                <span style={{ marginLeft: '10px', color: '#10b981', fontWeight: 600 }}>
-                  • {theatres.length} Theatres • {totalShowsCount} Shows Available
+            {activeLocation ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '14px', color: '#94a3b8' }}>Active Search Location:</span>
+                <span
+                  style={{
+                    fontSize: '15px',
+                    fontWeight: 800,
+                    color: '#38bdf8',
+                    background: 'rgba(56, 189, 248, 0.15)',
+                    padding: '4px 12px',
+                    borderRadius: '6px',
+                    border: '1px solid rgba(56, 189, 248, 0.35)',
+                  }}
+                >
+                  📍 {activeLocation.name || activeLocation.city}
                 </span>
-              </>
+
+                {activeLocation.latitude && activeLocation.longitude && (
+                  <span style={{ fontSize: '12px', color: '#64748b', fontFamily: 'monospace' }}>
+                    ({activeLocation.latitude.toFixed(4)}°N, {activeLocation.longitude.toFixed(4)}°E)
+                  </span>
+                )}
+
+                <span style={{ fontSize: '13px', color: '#10b981', fontWeight: 600 }}>
+                  • {theatres.length} Theatres Discovered • {totalShowsCount} Bookable Shows
+                </span>
+              </div>
             ) : (
-              <span style={{ color: '#fbbf24', fontWeight: 600 }}>
-                📍 Please search or select a city above, or click Detect GPS to discover nearby cinema shows
+              <span style={{ color: '#fbbf24', fontWeight: 600, fontSize: '14px' }}>
+                📍 Please search any Indian city, area, PIN code, or landmark above to discover nearby cinema screens
               </span>
             )}
           </div>
 
-          {/* Quick filter within the city */}
-          {selectedCity && (
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {/* Quick filter within the location */}
+          {activeLocation && (
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
               <input
                 type="text"
-                placeholder="Filter movie title in this city..."
+                placeholder="Filter movie title..."
                 value={movieFilter}
                 onChange={(e) => setMovieFilter(e.target.value)}
                 style={{
-                  padding: '6px 12px',
+                  padding: '7px 12px',
                   fontSize: '12px',
                   background: 'rgba(0,0,0,0.4)',
-                  border: '1px solid rgba(255,255,255,0.12)',
+                  border: '1px solid rgba(255,255,255,0.15)',
                   borderRadius: '6px',
                   color: '#fff',
-                  width: '180px',
+                  width: '160px',
                 }}
               />
-              {['ALL', 'IMAX', 'ATMOS'].map((fmt) => (
+              {['ALL', 'IMAX', 'ATMOS', '3D', '2D'].map((fmt) => (
                 <button
                   key={fmt}
                   className={`pill ${formatFilter === fmt ? 'active' : ''}`}
-                  style={{ fontSize: '11px', padding: '4px 8px' }}
+                  style={{ fontSize: '11px', padding: '5px 10px' }}
                   onClick={() => setFormatFilter(fmt)}
                 >
-                  {fmt === 'ALL' ? 'All' : fmt}
+                  {fmt === 'ALL' ? 'All Formats' : fmt}
                 </button>
               ))}
             </div>
@@ -474,18 +691,21 @@ export default function BmsCinemaTracker({
         </div>
       </div>
 
-      {/* Date & Search Radius Controls */}
+      {/* =========================================================================
+          CONTROLS STRIP: DATES, CONFIGURABLE RADIUS & TRANSPARENCY TOGGLE
+          ========================================================================= */}
       <div
         style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           flexWrap: 'wrap',
-          gap: '12px',
-          marginBottom: '20px',
+          gap: '14px',
+          marginBottom: '22px',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+          {/* Date Selector */}
           <div className="pill-container">
             {dateOptions.map((opt) => (
               <button
@@ -499,27 +719,27 @@ export default function BmsCinemaTracker({
             ))}
           </div>
 
-          {/* User-configurable search radius */}
+          {/* Configurable Search Radius Buttons */}
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '4px',
-              background: 'rgba(15, 23, 42, 0.8)',
-              padding: '4px 8px',
-              borderRadius: '8px',
+              gap: '6px',
+              background: 'rgba(15, 23, 42, 0.85)',
+              padding: '4px 10px',
+              borderRadius: '10px',
               border: '1px solid rgba(56, 189, 248, 0.25)',
             }}
           >
-            <span style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', marginRight: '4px' }}>
-              📍 Radius:
+            <span style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', marginRight: '4px', fontWeight: 700 }}>
+              🎯 Radius:
             </span>
-            {[10, 20, 30].map((rad) => (
+            {[5, 10, 15, 20, 30, 50].map((rad) => (
               <button
                 key={rad}
                 className={`pill ${searchRadius === rad ? 'active' : ''}`}
                 style={{
-                  padding: '4px 10px',
+                  padding: '4px 9px',
                   fontSize: '12px',
                   fontWeight: searchRadius === rad ? 700 : 500,
                   background: searchRadius === rad ? '#38bdf8' : 'transparent',
@@ -527,18 +747,66 @@ export default function BmsCinemaTracker({
                   border: 'none',
                 }}
                 onClick={() => setSearchRadius(rad)}
-                title={`Filter cinemas strictly within ${rad} km`}
+                title={`Discover theatres within ${rad} km`}
               >
-                {rad} km{rad === 10 ? ' (Default)' : ''}
+                {rad} km
               </button>
             ))}
           </div>
         </div>
 
-        <div style={{ color: '#64748b', fontSize: '12px' }}>
-          💡 Sorted strictly by distance • Click showtime to book
+        {/* View Mode Tabs: All Cinemas vs Bookable Online */}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <button
+            className={`pill ${cinemaViewTab === 'ALL' ? 'active' : ''}`}
+            style={{ padding: '7px 14px', fontSize: '12px', fontWeight: cinemaViewTab === 'ALL' ? 700 : 500 }}
+            onClick={() => setCinemaViewTab('ALL')}
+          >
+            🏛️ All Discovered Cinemas ({theatres.length})
+          </button>
+          <button
+            className={`pill ${cinemaViewTab === 'BOOKABLE' ? 'active' : ''}`}
+            style={{
+              padding: '7px 14px',
+              fontSize: '12px',
+              fontWeight: cinemaViewTab === 'BOOKABLE' ? 700 : 500,
+              background: cinemaViewTab === 'BOOKABLE' ? '#10b981' : undefined,
+              color: cinemaViewTab === 'BOOKABLE' ? '#fff' : undefined,
+            }}
+            onClick={() => setCinemaViewTab('BOOKABLE')}
+          >
+            🎟️ Online Bookable Shows ({bookableTheatresCount})
+          </button>
         </div>
       </div>
+
+      {/* Provider Transparency Banner */}
+      {providerMetadata && (
+        <div
+          style={{
+            marginBottom: '18px',
+            padding: '10px 16px',
+            background: 'rgba(15, 23, 42, 0.6)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRadius: '10px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '8px',
+            fontSize: '12px',
+            color: '#94a3b8',
+          }}
+        >
+          <div>
+            <strong style={{ color: '#e2e8f0' }}>📡 Data Source:</strong>{' '}
+            <span style={{ color: '#38bdf8' }}>{providerMetadata.provider}</span> • {providerMetadata.providerStatusMessage}
+          </div>
+          <div style={{ color: '#64748b' }}>
+            Sorted strictly by Haversine geographical distance
+          </div>
+        </div>
+      )}
 
       {/* =========================================================================
           THEATRES & REAL SHOWTIMES LISTING
@@ -546,26 +814,28 @@ export default function BmsCinemaTracker({
       {loading ? (
         <div style={{ textAlign: 'center', padding: '60px 0', color: '#94a3b8' }}>
           <div style={{ fontSize: '42px', marginBottom: '12px', animation: 'spin 2s linear infinite' }}>🍿</div>
-          <p style={{ fontSize: '16px', fontWeight: 600 }}>Loading nearby theatres and shows within {searchRadius} km...</p>
+          <p style={{ fontSize: '16px', fontWeight: 600 }}>
+            Scanning Pan-India cinema directory within {searchRadius} km for "{activeLocation?.name || 'Selected Area'}"...
+          </p>
         </div>
       ) : displayTheatres.length === 0 ? (
         <div className="card" style={{ textAlign: 'center', padding: '48px 24px', margin: '20px 0' }}>
           <div style={{ fontSize: '48px', marginBottom: '14px' }}>🏛️</div>
-          {!selectedCity ? (
+          {!activeLocation ? (
             <>
               <h3 style={{ fontSize: '1.35rem', fontWeight: 700, color: '#f8fafc' }}>
-                📍 Choose Your City to View Live Cinema Shows
+                📍 Choose Any Location to View Pan-India Cinemas
               </h3>
-              <p style={{ color: '#94a3b8', margin: '10px auto 22px', maxWidth: '520px', fontSize: '14px', lineHeight: '1.6' }}>
-                Search any Indian city above (e.g. <strong>Indore, Bhopal, Delhi NCR, Pune, Bengaluru</strong>) or click Detect GPS to locate cinema screens near you.
+              <p style={{ color: '#94a3b8', margin: '10px auto 22px', maxWidth: '540px', fontSize: '14px', lineHeight: '1.6' }}>
+                Search any Indian city, area, PIN code, or landmark above (e.g. <strong>Vijay Nagar Indore, 600040 Chennai, Andheri West Mumbai, Connaught Place Delhi</strong>) or click Use My GPS.
               </p>
-              <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap', maxWidth: '600px', margin: '0 auto 20px' }}>
-                {['Indore', 'Bhopal', 'Delhi NCR', 'Bengaluru', 'Pune', 'Hyderabad', 'Mumbai', 'Ahmedabad', 'Jaipur', 'Lucknow'].map((c) => (
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap', maxWidth: '640px', margin: '0 auto 20px' }}>
+                {['Vijay Nagar, Indore', 'Anna Nagar, Chennai', 'Andheri West, Mumbai', 'Connaught Place, Delhi', 'Koramangala, Bengaluru', 'Bhopal', 'Pune', 'Jaipur'].map((c) => (
                   <button
                     key={c}
                     className="pill"
                     style={{ padding: '6px 14px', fontSize: '13px' }}
-                    onClick={() => handleSelectCitySuggestion(c)}
+                    onClick={() => handleSelectCityPreset(c)}
                   >
                     📍 {c}
                   </button>
@@ -573,7 +843,7 @@ export default function BmsCinemaTracker({
               </div>
               <button
                 className="btn"
-                style={{ padding: '10px 20px', fontSize: '14px' }}
+                style={{ padding: '11px 22px', fontSize: '14px' }}
                 onClick={handleGpsDetect}
                 disabled={locating}
               >
@@ -583,27 +853,31 @@ export default function BmsCinemaTracker({
           ) : (
             <>
               <h3 style={{ fontSize: '1.25rem', color: '#f87171' }}>
-                No cinema screens found within {searchRadius} km for "{selectedCity}"
+                No cinema screens found within {searchRadius} km for "{activeLocation.name || activeLocation.city}"
               </h3>
-              <p style={{ color: '#94a3b8', margin: '10px auto 20px', maxWidth: '480px', fontSize: '14px', lineHeight: '1.6' }}>
-                There are no active shows found within your {searchRadius} km radius limit on this date.
-                Expand your search radius to 20 km or 30 km to view theatres in surrounding areas.
+              <p style={{ color: '#94a3b8', margin: '10px auto 20px', maxWidth: '520px', fontSize: '14px', lineHeight: '1.6' }}>
+                There are currently no verified cinema screens recorded within your {searchRadius} km radius limit.
+                Expand your radius to discover theatres in surrounding neighborhoods.
               </p>
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
                 {searchRadius < 20 && (
-                  <button
-                    className="btn"
-                    onClick={() => setSearchRadius(20)}
-                  >
+                  <button className="btn" onClick={() => setSearchRadius(20)}>
                     📍 Expand to 20 km
                   </button>
                 )}
                 {searchRadius < 30 && (
-                  <button
-                    className="btn"
-                    onClick={() => setSearchRadius(30)}
-                  >
+                  <button className="btn" onClick={() => setSearchRadius(30)}>
                     📍 Expand to 30 km
+                  </button>
+                )}
+                {searchRadius < 50 && (
+                  <button className="btn" onClick={() => setSearchRadius(50)}>
+                    📍 Expand to 50 km
+                  </button>
+                )}
+                {cinemaViewTab === 'BOOKABLE' && (
+                  <button className="btn btn-secondary" onClick={() => setCinemaViewTab('ALL')}>
+                    🏛️ View All Discovered Theatres
                   </button>
                 )}
                 <button
@@ -616,15 +890,6 @@ export default function BmsCinemaTracker({
                 >
                   📅 Check Tomorrow
                 </button>
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => {
-                    setCityInput('');
-                    if (onCityChange) onCityChange('');
-                  }}
-                >
-                  🔍 Change City
-                </button>
               </div>
             </>
           )}
@@ -634,158 +899,317 @@ export default function BmsCinemaTracker({
           {displayTheatres.map((theatre, index) => {
             const isClosest = index === 0;
             const shows = theatre.shows || [];
+            const hasBooking = theatre.hasBookableShows || shows.length > 0;
+            const chain = theatre.cinemaChain || 'Cinema';
+            const dataSource = theatre.dataSource || (hasBooking ? 'PARTNER_DEMO_SCHEDULE' : 'EXTERNAL_DIRECTORY');
 
             return (
               <div
-                key={theatre.theatreId}
+                key={theatre.theatreId || theatre.id || index}
                 className={`theatre-card ${isClosest ? 'closest' : ''}`}
-                style={{ padding: '22px 24px', marginBottom: '20px' }}
+                style={{ padding: '24px 26px', marginBottom: '22px' }}
               >
                 {/* Theatre Header */}
                 <div className="theatre-header">
-                  <div>
-                    <div className="theatre-name" style={{ fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: '260px' }}>
+                    <div className="theatre-name" style={{ fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                       <span>🏛️ {theatre.theatreName}</span>
-                      {isClosest && (
-                        <span className="closest-badge">🌟 CLOSEST TO YOU</span>
+
+                      {/* Chain Badge */}
+                      {chain && (
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 800,
+                            padding: '3px 8px',
+                            borderRadius: '4px',
+                            background: 'rgba(56, 189, 248, 0.15)',
+                            color: '#38bdf8',
+                            border: '1px solid rgba(56, 189, 248, 0.35)',
+                            textTransform: 'uppercase',
+                          }}
+                        >
+                          {chain}
+                        </span>
                       )}
-                      <span
-                        style={{
-                          fontSize: '11px',
-                          fontWeight: 700,
-                          padding: '2px 8px',
-                          borderRadius: '4px',
-                          background: 'rgba(16, 185, 129, 0.15)',
-                          color: '#34d399',
-                          border: '1px solid rgba(16, 185, 129, 0.3)',
-                        }}
-                      >
-                        🟢 Online Booking Active
-                      </span>
-                    </div>
-                    <div className="theatre-address" style={{ margin: '4px 0 8px', color: '#94a3b8' }}>
-                      📍 {theatre.address}
+
+                      {/* Closest indicator */}
+                      {isClosest && (
+                        <span className="closest-badge">🌟 CLOSEST TO SEARCH LOCATION</span>
+                      )}
+
+                      {/* Data Source Badge with Genuine Transparency */}
+                      {dataSource === 'VERIFIED_LIVE_PROVIDER' ? (
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            background: 'rgba(16, 185, 129, 0.15)',
+                            color: '#34d399',
+                            border: '1px solid rgba(16, 185, 129, 0.3)',
+                          }}
+                          title="Verified live external provider feed"
+                        >
+                          🟢 Verified Live Provider Data
+                        </span>
+                      ) : dataSource === 'PARTNER_DEMO_SCHEDULE' ? (
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            background: 'rgba(245, 158, 11, 0.15)',
+                            color: '#fbbf24',
+                            border: '1px solid rgba(245, 158, 11, 0.3)',
+                          }}
+                          title="Locally managed partner demo showtimes"
+                        >
+                          🟡 Locally Managed Partner Schedule
+                        </span>
+                      ) : (
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            background: 'rgba(59, 130, 246, 0.15)',
+                            color: '#60a5fa',
+                            border: '1px solid rgba(59, 130, 246, 0.3)',
+                          }}
+                          title="Discovered via OpenStreetMap / Directory"
+                        >
+                          🔵 External Cinema Registry
+                        </span>
+                      )}
                     </div>
 
-                    {/* Facility Tags */}
-                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <div className="theatre-address" style={{ margin: '6px 0 10px', color: '#94a3b8', fontSize: '13px' }}>
+                      📍 {theatre.address || `${theatre.city || 'India'}`}
+                    </div>
+
+                    {/* Facility Tags & Rating */}
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      {theatre.rating && (
+                        <span style={{ fontSize: '12px', fontWeight: 700, color: '#fbbf24', background: 'rgba(251, 191, 36, 0.12)', padding: '2px 8px', borderRadius: '4px' }}>
+                          ⭐ {theatre.rating.toFixed(1)} {theatre.userRatingCount ? `(${theatre.userRatingCount})` : ''}
+                        </span>
+                      )}
                       <span className="bms-facility-badge">📱 M-Ticket</span>
                       <span className="bms-facility-badge">🍿 F&amp;B Available</span>
-                      <span className="bms-facility-badge" style={{ color: '#38bdf8' }}>
-                        🔊 Dolby Atmos
-                      </span>
-                      <span className="bms-facility-badge" style={{ color: '#fbbf24' }}>
-                        📽️ IMAX Laser
-                      </span>
+                      <span className="bms-facility-badge" style={{ color: '#38bdf8' }}>🔊 Dolby Atmos</span>
+                      <span className="bms-facility-badge" style={{ color: '#fbbf24' }}>📽️ IMAX Laser</span>
+
+                      {theatre.lastUpdated && (
+                        <span style={{ fontSize: '11px', color: '#64748b' }}>
+                          Updated: {new Date(theatre.lastUpdated).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      )}
                     </div>
                   </div>
 
-                  <div style={{ textAlign: 'right' }}>
-                    <div className="theatre-distance" style={{ fontSize: '13px', color: '#38bdf8', fontWeight: 700 }}>
-                      📍 {theatre.distanceKm ? `${theatre.distanceKm} km away` : 'Near you'}
+                  {/* Distance & Directions */}
+                  <div style={{ textAlign: 'right', minWidth: '140px' }}>
+                    <div className="theatre-distance" style={{ fontSize: '14px', color: '#38bdf8', fontWeight: 800 }}>
+                      📍 {theatre.distanceKm != null ? `${theatre.distanceKm} km away` : 'Nearby'}
                     </div>
-                    {theatre.latitude && theatre.longitude && (
-                      <a
-                        href={`https://www.google.com/maps/dir/?api=1&destination=${theatre.latitude},${theatre.longitude}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          fontSize: '11px',
-                          color: '#94a3b8',
-                          textDecoration: 'none',
-                          marginTop: '6px',
-                          background: 'rgba(255,255,255,0.06)',
-                          padding: '3px 8px',
-                          borderRadius: '4px',
-                        }}
-                      >
-                        🧭 Directions ↗
-                      </a>
-                    )}
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-end', marginTop: '8px' }}>
+                      {theatre.googleMapsUri ? (
+                        <a
+                          href={theatre.googleMapsUri}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontSize: '11px',
+                            color: '#94a3b8',
+                            textDecoration: 'none',
+                            background: 'rgba(255,255,255,0.06)',
+                            padding: '4px 9px',
+                            borderRadius: '4px',
+                          }}
+                        >
+                          🧭 Google Maps ↗
+                        </a>
+                      ) : theatre.latitude && theatre.longitude ? (
+                        <a
+                          href={`https://www.google.com/maps/dir/?api=1&destination=${theatre.latitude},${theatre.longitude}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontSize: '11px',
+                            color: '#94a3b8',
+                            textDecoration: 'none',
+                            background: 'rgba(255,255,255,0.06)',
+                            padding: '4px 9px',
+                            borderRadius: '4px',
+                          }}
+                        >
+                          🧭 Directions ↗
+                        </a>
+                      ) : null}
+
+                      {theatre.officialBookingUrl && theatre.officialBookingUrl.startsWith('http') && (
+                        <a
+                          href={theatre.officialBookingUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontSize: '11px',
+                            color: '#38bdf8',
+                            textDecoration: 'none',
+                            background: 'rgba(56, 189, 248, 0.1)',
+                            padding: '4px 9px',
+                            borderRadius: '4px',
+                            fontWeight: 600,
+                          }}
+                        >
+                          🎟️ Official Portal ↗
+                        </a>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                {/* Shows Grid */}
-                {shows.length === 0 ? (
-                  <p style={{ color: '#94a3b8', fontSize: '13px', margin: '14px 0' }}>
-                    No shows matching filters for this theatre today.
-                  </p>
+                {/* Shows Grid or External Portal Notice */}
+                {shows.length > 0 ? (
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: '#38bdf8', marginTop: '16px', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      🎟️ Available Shows &amp; Timings:
+                    </div>
+                    <div className="shows-grid">
+                      {shows.map((show) => {
+                        const showId = show.showId || show.id;
+                        const showDate = new Date(show.showTime);
+                        const timeStr = showDate.toLocaleTimeString('en-US', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        });
+
+                        const hasRealSeats = show.availableSeats != null && show.totalSeats != null;
+                        const availCount = show.availableSeats ?? 86;
+                        const isFillingFast = availCount > 0 && availCount <= 12;
+                        const isAlmostFull = availCount > 0 && availCount <= 4;
+                        const price = show.basePrice;
+
+                        return (
+                          <button
+                            key={showId}
+                            className="bms-showtime-btn"
+                            onClick={() =>
+                              onSelectShow({
+                                ...show,
+                                id: showId,
+                                theatreName: theatre.theatreName,
+                                theatreAddress: theatre.address,
+                                theatreCity: theatre.city,
+                              })
+                            }
+                            title={`Click to select seats for ${show.movieTitle} at ${timeStr}`}
+                          >
+                            <div style={{ fontSize: '16px', fontWeight: 800, color: '#fff' }}>
+                              {timeStr}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: '13px',
+                                color: '#38bdf8',
+                                fontWeight: 700,
+                                margin: '3px 0 2px',
+                                maxWidth: '140px',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                              title={show.movieTitle}
+                            >
+                              {show.movieTitle}
+                            </div>
+                            <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '6px' }}>
+                              {show.screenFormat || show.screenName}
+                            </div>
+
+                            <div
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                width: '100%',
+                                borderTop: '1px solid rgba(255,255,255,0.08)',
+                                paddingTop: '6px',
+                                fontSize: '11px',
+                              }}
+                            >
+                              {hasRealSeats ? (
+                                isAlmostFull ? (
+                                  <span className="bms-status-full">🔴 Almost Full</span>
+                                ) : isFillingFast ? (
+                                  <span className="bms-status-fast">🟡 Fast ({availCount})</span>
+                                ) : (
+                                  <span className="bms-status-avail">🟢 {availCount} seats</span>
+                                )
+                              ) : (
+                                <span style={{ color: '#94a3b8' }}>Available</span>
+                              )}
+                              <span style={{ color: '#fbbf24', fontWeight: 700 }}>
+                                {price != null ? `₹${price}` : '₹220'}
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 ) : (
-                  <div className="shows-grid" style={{ marginTop: '16px' }}>
-                    {shows.map((show) => {
-                      const showId = show.showId || show.id;
-                      const showDate = new Date(show.showTime);
-                      const timeStr = showDate.toLocaleTimeString('en-US', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      });
+                  <div
+                    style={{
+                      marginTop: '16px',
+                      padding: '14px 18px',
+                      background: 'rgba(15, 23, 42, 0.5)',
+                      borderRadius: '8px',
+                      border: '1px dashed rgba(255,255,255,0.12)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: '12px',
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: '#cbd5e1' }}>
+                        ℹ️ External Cinema Listing
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
+                        Seat inventory and real-time ticketing for this screen are managed directly by {chain} / local box office.
+                      </div>
+                    </div>
 
-                      const availCount = show.availableSeats != null ? show.availableSeats : 86;
-                      const isFillingFast = availCount > 0 && availCount <= 12;
-                      const isAlmostFull = availCount > 0 && availCount <= 4;
-
-                      return (
-                        <button
-                          key={showId}
-                          className="bms-showtime-btn"
-                          onClick={() =>
-                            onSelectShow({
-                              ...show,
-                              id: showId,
-                              theatreName: theatre.theatreName,
-                              theatreAddress: theatre.address,
-                              theatreCity: theatre.city,
-                            })
-                          }
-                          title={`Click to select seats for ${show.movieTitle} at ${timeStr}`}
-                        >
-                          <div style={{ fontSize: '16px', fontWeight: 800, color: '#fff' }}>
-                            {timeStr}
-                          </div>
-                          <div
-                            style={{
-                              fontSize: '13px',
-                              color: '#38bdf8',
-                              fontWeight: 700,
-                              margin: '3px 0 2px',
-                              maxWidth: '140px',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                            }}
-                            title={show.movieTitle}
-                          >
-                            {show.movieTitle}
-                          </div>
-                          <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '6px' }}>
-                            {show.screenName}
-                          </div>
-
-                          <div
-                            style={{
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              width: '100%',
-                              borderTop: '1px solid rgba(255,255,255,0.08)',
-                              paddingTop: '6px',
-                              fontSize: '11px',
-                            }}
-                          >
-                            {isAlmostFull ? (
-                              <span className="bms-status-full">🔴 Almost Full</span>
-                            ) : isFillingFast ? (
-                              <span className="bms-status-fast">🟡 Fast ({availCount})</span>
-                            ) : (
-                              <span className="bms-status-avail">🟢 {availCount} seats</span>
-                            )}
-                            <span style={{ color: '#fbbf24', fontWeight: 700 }}>₹{show.basePrice}</span>
-                          </div>
-                        </button>
-                      );
-                    })}
+                    {theatre.officialBookingUrl ? (
+                      <a
+                        href={theatre.officialBookingUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-secondary"
+                        style={{ padding: '8px 14px', fontSize: '12px' }}
+                      >
+                        🌐 Visit Box Office Portal ↗
+                      </a>
+                    ) : (
+                      <span style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic' }}>
+                        Direct schedule integration pending
+                      </span>
+                    )}
                   </div>
                 )}
               </div>

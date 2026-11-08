@@ -37,6 +37,7 @@ public class GooglePlacesService {
     private final BookingSeatRepository bookingSeatRepository;
     private final TheatreService theatreService;
     private final OpenCinemaService openCinemaService;
+    private final GeocodingService geocodingService;
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
 
@@ -115,6 +116,7 @@ public class GooglePlacesService {
             BookingSeatRepository bookingSeatRepository,
             TheatreService theatreService,
             @Autowired(required = false) OpenCinemaService openCinemaService,
+            @Autowired(required = false) GeocodingService geocodingService,
             @Value("${app.google.places.base-url:https://places.googleapis.com/v1}") String baseUrl,
             @Value("${app.google.places.connect-timeout-seconds:8}") int connectTimeout,
             @Value("${app.google.places.read-timeout-seconds:10}") int readTimeout) {
@@ -124,6 +126,7 @@ public class GooglePlacesService {
         this.bookingSeatRepository = bookingSeatRepository;
         this.theatreService = theatreService;
         this.openCinemaService = openCinemaService;
+        this.geocodingService = geocodingService;
         this.objectMapper = new ObjectMapper();
 
         HttpClient httpClient = HttpClient.newBuilder()
@@ -156,6 +159,7 @@ public class GooglePlacesService {
         this.bookingSeatRepository = bookingSeatRepository;
         this.theatreService = theatreService;
         this.openCinemaService = openCinemaService;
+        this.geocodingService = null;
         this.restClient = restClient;
         this.objectMapper = new ObjectMapper();
         this.defaultRadiusKm = 15.0;
@@ -229,7 +233,21 @@ public class GooglePlacesService {
         }
         String normalized = cityName.trim().toLowerCase();
 
-        // 1. Direct match
+        // 1. Dynamic Geocoding via GeocodingService (supports ANY city, area, PIN, landmark across India)
+        if (geocodingService != null) {
+            try {
+                List<com.moviebooking.dto.response.LocationSuggestionDto> suggestions = geocodingService.searchLocations(cityName.trim(), 1);
+                if (!suggestions.isEmpty()) {
+                    var s = suggestions.get(0);
+                    String canonical = (s.getCity() != null && !s.getCity().isBlank()) ? s.getCity() : s.getName();
+                    return new Coordinates(s.getLatitude(), s.getLongitude(), canonical);
+                }
+            } catch (Exception e) {
+                log.warn("Dynamic geocoding lookup failed for '{}': {}. Falling back to coordinate presets.", cityName, e.getMessage());
+            }
+        }
+
+        // 2. Direct match from verified presets
         if (CITY_COORDINATES.containsKey(normalized)) {
             return CITY_COORDINATES.get(normalized);
         }
@@ -325,12 +343,15 @@ public class GooglePlacesService {
         boolean openCinemaActive = (openCinemaService != null && openCinemaService.isConfigured());
 
         String provider;
+        boolean osmActive = (geocodingService != null);
         if (openCinemaActive && googleApiActive) {
-            provider = "OPEN_CINEMA_PLATFORM, GOOGLE_PLACES";
-        } else if (openCinemaActive) {
-            provider = "OPEN_CINEMA_PLATFORM";
+            provider = osmActive ? "OPEN_CINEMA_PLATFORM, GOOGLE_PLACES, OPENSTREETMAP" : "OPEN_CINEMA_PLATFORM, GOOGLE_PLACES";
         } else if (googleApiActive) {
-            provider = "GOOGLE_PLACES";
+            provider = osmActive ? "GOOGLE_PLACES, OPENSTREETMAP" : "GOOGLE_PLACES";
+        } else if (openCinemaActive) {
+            provider = osmActive ? "OPEN_CINEMA_PLATFORM, OPENSTREETMAP" : "OPEN_CINEMA_PLATFORM";
+        } else if (osmActive) {
+            provider = "OPENSTREETMAP, LOCAL_DATABASE";
         } else {
             provider = "LOCAL_DATABASE";
         }
@@ -373,8 +394,23 @@ public class GooglePlacesService {
             }
         }
 
+        // Step 1c: Query OpenStreetMap Nominatim Dynamic Cinema Directory
+        try {
+            List<CinemaDiscoveryDto> osmCinemas = fetchFromOpenStreetMap(effectiveCity, effectiveLat, effectiveLon, searchRadius);
+            for (CinemaDiscoveryDto oc : osmCinemas) {
+                if (discoveredList.stream().noneMatch(existing -> isSameCinema(existing, oc))) {
+                    discoveredList.add(oc);
+                }
+            }
+            if (!osmCinemas.isEmpty()) {
+                statusBuilder.append(String.format("OpenStreetMap Cinema Directory active — Discovered %d cinema(s). ", osmCinemas.size()));
+            }
+        } catch (Exception e) {
+            log.warn("OpenStreetMap cinema directory lookup notice: {}", e.getMessage());
+        }
+
         if (!openCinemaActive && !googleApiActive) {
-            statusBuilder.append("External cinema providers (Open Cinema Platform & Google Places) are unconfigured. Showing verified theatres registered in our booking database.");
+            statusBuilder.append("Showing dynamic OpenStreetMap verified cinemas and partner multiplexes registered in our booking database.");
         }
 
         String statusMessage = statusBuilder.toString().trim();
@@ -389,6 +425,10 @@ public class GooglePlacesService {
         for (CinemaDiscoveryDto cinema : discoveredList) {
             // Find match by name or coordinates
             Theatre matched = findMatchingTheatre(cinema, registeredTheatres);
+            String chain = detectCinemaChain(cinema.getName());
+            cinema.setCinemaChain(chain);
+            cinema.setLastUpdated(java.time.LocalDateTime.now().toString());
+
             if (matched != null) {
                 matchedTheatres.put(matched.getId(), matched);
                 cinema.setRegistered(true);
@@ -399,10 +439,18 @@ public class GooglePlacesService {
                 if (!items.isEmpty()) {
                     cinema.setHasBookableShows(true);
                     cinema.setCinemaType("BOOKABLE_PARTNER");
+                    cinema.setDataSource("PARTNER_DEMO_SCHEDULE");
+                    cinema.setPriceNote("₹180 - ₹450 tiered schedule");
+                    cinema.setSeatAvailabilityNote("Real-time seat map available");
+                    cinema.setOfficialBookingUrl("/seat-selection/" + items.get(0).getShowId());
                     cinema.setShows(items);
                 } else {
                     cinema.setHasBookableShows(false);
                     cinema.setCinemaType("REGISTERED_THEATRE");
+                    cinema.setDataSource("EXTERNAL_DIRECTORY");
+                    cinema.setPriceNote("Not provided by cinema data source");
+                    cinema.setSeatAvailabilityNote("Not provided by cinema data source");
+                    cinema.setOfficialBookingUrl("https://www.google.com/maps/search/?api=1&query=" + java.net.URLEncoder.encode(matched.getName() + " " + matched.getCity(), java.nio.charset.StandardCharsets.UTF_8));
                     cinema.setShows(Collections.emptyList());
                 }
             } else {
@@ -410,6 +458,10 @@ public class GooglePlacesService {
                 cinema.setTheatreId(null);
                 cinema.setHasBookableShows(false);
                 cinema.setCinemaType("EXTERNAL_DISCOVERY");
+                cinema.setDataSource("VERIFIED_LIVE_PROVIDER");
+                cinema.setPriceNote("Not provided by cinema data source");
+                cinema.setSeatAvailabilityNote("Not provided by cinema data source");
+                cinema.setOfficialBookingUrl("https://www.google.com/maps/search/?api=1&query=" + java.net.URLEncoder.encode(cinema.getName() + " " + effectiveCity, java.nio.charset.StandardCharsets.UTF_8));
                 cinema.setShows(Collections.emptyList());
             }
 
@@ -418,7 +470,7 @@ public class GooglePlacesService {
             cinema.setDistanceKm(Math.round(distance * 10.0) / 10.0);
         }
 
-        // Step 4: Include any registered local theatres in the vicinity that weren't returned by Google Places
+        // Step 4: Include any registered local theatres in the vicinity that weren't returned by external discovery
         for (Theatre theatre : registeredTheatres) {
             if (matchedTheatres.containsKey(theatre.getId())) {
                 continue;
@@ -449,6 +501,8 @@ public class GooglePlacesService {
                         ? "https://www.google.com/maps/dir/?api=1&destination=" + theatre.getLatitude() + "," + theatre.getLongitude()
                         : "https://www.google.com/maps/search/?api=1&query=" + java.net.URLEncoder.encode(theatre.getName() + " " + theatre.getCity(), java.nio.charset.StandardCharsets.UTF_8);
 
+                String chain = detectCinemaChain(theatre.getName());
+
                 discoveredList.add(CinemaDiscoveryDto.builder()
                         .id("local-" + theatre.getId())
                         .name(theatre.getName())
@@ -460,20 +514,30 @@ public class GooglePlacesService {
                         .googleMapsUri(mapsLink)
                         .rating(4.5)
                         .userRatingCount(350)
+                        .cinemaChain(chain)
                         .isRegistered(true)
                         .theatreId(theatre.getId())
                         .hasBookableShows(hasShows)
                         .cinemaType(hasShows ? "BOOKABLE_PARTNER" : "REGISTERED_THEATRE")
+                        .dataSource(hasShows ? "PARTNER_DEMO_SCHEDULE" : "EXTERNAL_DIRECTORY")
+                        .lastUpdated(java.time.LocalDateTime.now().toString())
+                        .priceNote(hasShows ? "Tiered pricing: Regular / Premium / VIP" : "Not provided by cinema data source")
+                        .seatAvailabilityNote(hasShows ? "Real-time seat layout with atomic reservation" : "Not provided by cinema data source")
+                        .officialBookingUrl(mapsLink)
                         .shows(items)
                         .build());
             }
         }
 
-        // Step 5: If GPS coordinates were provided, strictly filter by searchRadius
-        if (userLat != null && userLon != null) {
-            discoveredList = discoveredList.stream()
-                    .filter(c -> c.getDistanceKm() != null && c.getDistanceKm() <= searchRadius)
-                    .collect(Collectors.toCollection(ArrayList::new));
+        // Step 5: Strictly filter by searchRadius
+        discoveredList = discoveredList.stream()
+                .filter(c -> c.getDistanceKm() != null && c.getDistanceKm() <= searchRadius)
+                .collect(Collectors.toCollection(ArrayList::new));
+
+        if (discoveredList.isEmpty()) {
+            statusMessage = String.format(Locale.US,
+                    "No cinema theatres found within %.0f km of %s. Try expanding your search radius to 20 km or 50 km.",
+                    searchRadius, effectiveCity);
         }
 
         // Step 6: Sort cinemas prioritizing bookable partner theatres with shows first, then distance
@@ -667,24 +731,60 @@ public class GooglePlacesService {
             int totalSeats = (s.getScreen().getTotalSeats() != null) ? s.getScreen().getTotalSeats() : 86;
             int bookedSeats = bookedSeatsMap.getOrDefault(s.getId(), 0);
             int availableSeats = Math.max(0, totalSeats - bookedSeats);
+            String format = s.getScreen().getName().contains("IMAX") ? "IMAX Laser 3D"
+                    : s.getScreen().getName().contains("Atmos") ? "Dolby Atmos 7.1" : "2D Digital";
 
             NearbyTheatreShowsResponse.NearbyShowItem item = NearbyTheatreShowsResponse.NearbyShowItem.builder()
                     .showId(s.getId())
                     .movieId(s.getMovie().getId())
                     .movieTitle(s.getMovie().getTitle())
+                    .moviePosterUrl(s.getMovie().getPosterUrl())
                     .movieLanguage(s.getMovie().getLanguage())
                     .screenName(s.getScreen().getName())
+                    .screenFormat(format)
                     .showTime(s.getShowTime())
                     .basePrice(s.getBasePrice())
                     .premiumPrice(s.getPremiumPrice())
                     .vipPrice(s.getVipPrice())
                     .totalSeats(totalSeats)
                     .availableSeats(availableSeats)
+                    .dataSource("PARTNER_DEMO_SCHEDULE")
+                    .priceNote("₹" + s.getBasePrice() + " - ₹" + s.getVipPrice())
+                    .seatAvailabilityNote(availableSeats + " seats left")
+                    .officialBookingUrl("/seat-selection/" + s.getId())
                     .build();
 
             map.computeIfAbsent(theatreId, k -> new ArrayList<>()).add(item);
         }
         return map;
+    }
+
+    public static String detectCinemaChain(String name) {
+        if (name == null || name.isBlank()) return "Independent Multiplex";
+        String lower = name.toLowerCase();
+        if (lower.contains("pvr")) return "PVR Cinemas";
+        if (lower.contains("inox")) return "INOX Leisure";
+        if (lower.contains("cinepolis") || lower.contains("cinépolis")) return "Cinépolis";
+        if (lower.contains("carnival")) return "Carnival Cinemas";
+        if (lower.contains("miraj")) return "Miraj Cinemas";
+        if (lower.contains("wave")) return "Wave Cinemas";
+        if (lower.contains("moviemax")) return "MovieMax";
+        if (lower.contains("fundore")) return "Fundore Cinema";
+        if (lower.contains("fortune")) return "Fortune Cinemas";
+        if (lower.contains("raj mandir")) return "Raj Mandir";
+        if (lower.contains("prasads")) return "Prasads Multiplex";
+        if (lower.contains("amb")) return "AMB Cinemas";
+        return "Independent Cinema";
+    }
+
+    /**
+     * Dynamically searches OpenStreetMap Nominatim for verified cinemas in the specified Indian location.
+     */
+    private List<CinemaDiscoveryDto> fetchFromOpenStreetMap(String city, double centerLat, double centerLon, double radiusKm) {
+        if (geocodingService == null) {
+            return Collections.emptyList();
+        }
+        return geocodingService.fetchCinemasFromOpenStreetMap(city, centerLat, centerLon, radiusKm);
     }
 
     public static double calculateHaversineKm(double lat1, double lon1, double lat2, double lon2) {

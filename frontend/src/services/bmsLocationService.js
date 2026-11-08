@@ -4,6 +4,8 @@
  * and tracks residential cinema theatres across all Indian states and metro hubs.
  */
 
+import { reverseGeocodeCoordinates } from './api';
+
 export const POPULAR_CITIES = [
   'Mumbai',
   'Delhi NCR',
@@ -215,34 +217,55 @@ export async function detectCurrentLocation() {
         const { latitude, longitude } = pos.coords;
         let detectedCity = '';
         let neighborhood = '';
+        let state = '';
+        let postcode = '';
 
+        // 1. Try backend reverse geocoding first (reliable, cached, Nominatim compliant)
         try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 4000);
-
-          const res = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=14&addressdetails=1`,
-            { headers: { 'Accept': 'application/json' }, signal: controller.signal }
-          );
-          clearTimeout(timeoutId);
-
-          if (res.ok) {
-            const data = await res.json();
-            const addr = data.address || {};
-            neighborhood = addr.suburb || addr.neighbourhood || addr.residential || addr.city_district || addr.quarter || '';
-            const rawCity = addr.city || addr.town || addr.municipality || addr.state_district || addr.county || '';
-
-            if (rawCity) {
-              const matched = ALL_INDIAN_CITIES.find(
-                (c) => c.toLowerCase() === rawCity.toLowerCase() || rawCity.toLowerCase().includes(c.toLowerCase())
-              );
-              detectedCity = matched || rawCity;
-            }
+          const locationData = await reverseGeocodeCoordinates(latitude, longitude);
+          if (locationData) {
+            neighborhood = locationData.locality || locationData.name || '';
+            detectedCity = locationData.city || '';
+            state = locationData.state || '';
+            postcode = locationData.postcode || '';
           }
-        } catch (err) {
-          // Geometric distance fallback
+        } catch (e) {
+          // Backend lookup failed, fall back below
         }
 
+        // 2. Direct Nominatim fallback if backend didn't return city
+        if (!detectedCity) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+            const res = await fetch(
+              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=14&addressdetails=1`,
+              { headers: { 'Accept': 'application/json' }, signal: controller.signal }
+            );
+            clearTimeout(timeoutId);
+
+            if (res.ok) {
+              const data = await res.json();
+              const addr = data.address || {};
+              neighborhood = addr.suburb || addr.neighbourhood || addr.residential || addr.city_district || addr.quarter || neighborhood;
+              const rawCity = addr.city || addr.town || addr.municipality || addr.state_district || addr.county || '';
+              state = addr.state || state;
+              postcode = addr.postcode || postcode;
+
+              if (rawCity) {
+                const matched = ALL_INDIAN_CITIES.find(
+                  (c) => c.toLowerCase() === rawCity.toLowerCase() || rawCity.toLowerCase().includes(c.toLowerCase())
+                );
+                detectedCity = matched || rawCity;
+              }
+            }
+          } catch (err) {
+            // Geometric distance fallback
+          }
+        }
+
+        // 3. Coordinate geometric fallback to nearest city
         if (!detectedCity) {
           const match = findClosestCity(latitude, longitude);
           detectedCity = match.city;
@@ -252,9 +275,11 @@ export async function detectCurrentLocation() {
           success: true,
           city: detectedCity,
           neighborhood,
+          state,
+          postcode,
           latitude,
           longitude,
-          message: `GPS Active: Located at ${neighborhood ? neighborhood + ', ' : ''}${detectedCity} (${latitude.toFixed(2)}°N, ${longitude.toFixed(2)}°E)`
+          message: `GPS Active: Located at ${neighborhood ? neighborhood + ', ' : ''}${detectedCity}${state ? ', ' + state : ''} (${latitude.toFixed(4)}°N, ${longitude.toFixed(4)}°E)`
         });
       },
       (err) => {
@@ -262,7 +287,7 @@ export async function detectCurrentLocation() {
         resolve({
           success: false,
           city: '',
-          message: 'GPS access denied or unavailable. Please type your city name or locality.'
+          message: 'GPS access denied or unavailable. Please type your city name, area or PIN code.'
         });
       },
       { timeout: 8000, enableHighAccuracy: true, maximumAge: 60000 }
