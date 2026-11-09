@@ -20,3 +20,4 @@ public class LocationSuggestionDto {
     private double longitude;       // Longitude coordinate
     private String type;            // "suburb", "city", "postcode", "landmark", etc.
 }
+

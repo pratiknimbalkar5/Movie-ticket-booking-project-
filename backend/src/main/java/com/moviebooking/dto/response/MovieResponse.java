@@ -16,6 +16,7 @@ public class MovieResponse {
 
     private Long id;
     private Long tmdbId;
+    private String imdbId;
     private String title;
     private String description;
     private String genre;

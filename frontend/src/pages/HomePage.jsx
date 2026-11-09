@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
 import { handlePosterError, getFallbackPosterSvg } from '../utils/posterHelper';
-import BmsCinemaTracker from '../components/BmsCinemaTracker';
 
 export default function HomePage({
   selectedCity = '',
@@ -15,45 +14,40 @@ export default function HomePage({
   const navigate = useNavigate();
   const [heroSearchQuery, setHeroSearchQuery] = useState('');
 
-  // Sections data
+  // Exactly TWO sections: Section A (Now Showing) and Section B (Coming Soon)
   const [nowShowing, setNowShowing] = useState([]);
-  const [latestReleases, setLatestReleases] = useState([]);
-  const [upcoming, setUpcoming] = useState([]);
-
+  const [comingSoon, setComingSoon] = useState([]);
   const [loadingNowShowing, setLoadingNowShowing] = useState(true);
-  const [loadingLatest, setLoadingLatest] = useState(true);
-  const [loadingUpcoming, setLoadingUpcoming] = useState(true);
-
-  // Active home tab for movie carousel/grid
-  const [activeMovieTab, setActiveMovieTab] = useState('now-showing'); // 'now-showing' | 'latest' | 'upcoming'
+  const [loadingComingSoon, setLoadingComingSoon] = useState(true);
 
   useEffect(() => {
-    // 1. Fetch Now In Theatres (movies with active bookable shows / current theatrical run)
+    // Section A: Now Showing in Theatres (movies with verified current theatrical screening in India)
     api.get('/movies/now-playing?region=IN&page=1')
       .then((res) => {
         const list = res.data?.data?.results || res.data?.data || [];
-        setNowShowing(list.slice(0, 8));
+        // Filter strictly to non-upcoming with current screening eligibility
+        const filtered = list.filter((m) => !m.isUpcoming);
+        setNowShowing(filtered.slice(0, 8));
       })
       .catch(() => {})
       .finally(() => setLoadingNowShowing(false));
 
-    // 2. Fetch Latest Releases (Strictly within the last 30 days, sorted newest first)
-    api.get('/movies/latest-releases?region=IN&days=30&page=1')
-      .then((res) => {
-        const list = res.data?.data?.results || res.data?.data || [];
-        setLatestReleases(list.slice(0, 8));
-      })
-      .catch(() => {})
-      .finally(() => setLoadingLatest(false));
-
-    // 3. Fetch Coming Soon (Strictly future Indian release dates)
+    // Section B: Coming Soon (movies with verified future Indian theatrical release dates)
     api.get('/movies/upcoming?region=IN&page=1')
       .then((res) => {
         const list = res.data?.data?.results || res.data?.data || [];
-        setUpcoming(list.slice(0, 8));
+        const today = new Date().toISOString().split('T')[0];
+        // Strictly filter to release dates in the future
+        const futureOnly = list.filter((m) => {
+          if (!m.releaseDate) return Boolean(m.isUpcoming);
+          return m.releaseDate > today;
+        });
+        // Sort by nearest upcoming release date
+        futureOnly.sort((a, b) => (a.releaseDate || '').localeCompare(b.releaseDate || ''));
+        setComingSoon(futureOnly.slice(0, 8));
       })
       .catch(() => {})
-      .finally(() => setLoadingUpcoming(false));
+      .finally(() => setLoadingComingSoon(false));
   }, []);
 
   const handleHeroSearchSubmit = (e) => {
@@ -71,25 +65,6 @@ export default function HomePage({
     navigate(`/movie/${targetId}`, { state: { movie } });
   };
 
-  const handleShowClick = (show) => {
-    if (onSelectShow) onSelectShow(show);
-    navigate(`/seat-selection/${show.id || show.showId}`, { state: { show } });
-  };
-
-  const currentList =
-    activeMovieTab === 'now-showing'
-      ? nowShowing
-      : activeMovieTab === 'latest'
-      ? latestReleases
-      : upcoming;
-
-  const currentLoading =
-    activeMovieTab === 'now-showing'
-      ? loadingNowShowing
-      : activeMovieTab === 'latest'
-      ? loadingLatest
-      : loadingUpcoming;
-
   return (
     <div className="container" style={{ paddingBottom: 60 }}>
       {/* =========================================================================
@@ -101,7 +76,7 @@ export default function HomePage({
           marginBottom: 36,
           background: 'radial-gradient(ellipse at top left, #1e293b 0%, #0f172a 100%)',
           borderRadius: 20,
-          padding: '44px 32px',
+          padding: '40px 32px',
           border: '1px solid rgba(255, 255, 255, 0.08)',
           boxShadow: '0 20px 40px rgba(0, 0, 0, 0.4)',
           position: 'relative',
@@ -124,24 +99,24 @@ export default function HomePage({
               marginBottom: 16,
             }}
           >
-            <span>🍿 Experience Cinema Like Never Before</span>
+            <span>🎬 CinemaPulse • Theatrical Discovery</span>
             {selectedCity && <span>• 📍 {selectedCity}</span>}
           </div>
 
           <h1
             style={{
-              fontSize: '36px',
+              fontSize: '34px',
               fontWeight: 800,
               color: '#f8fafc',
-              lineHeight: 1.2,
+              lineHeight: 1.25,
               marginBottom: 14,
               letterSpacing: '-0.5px',
             }}
           >
-            Book Movie Tickets Online with Instant Seat Reservation
+            Book Movie Tickets Online with Live Screen Schedules
           </h1>
-          <p style={{ color: '#94a3b8', fontSize: '15px', lineHeight: 1.6, marginBottom: 28 }}>
-            Discover the latest theatrical releases in India, view live staggered showtimes across major multiplexes, and book your preferred seats with ease.
+          <p style={{ color: '#94a3b8', fontSize: '15px', lineHeight: 1.6, marginBottom: 26 }}>
+            Discover current theatrical blockbusters in Indian cinemas and explore upcoming premieres with verified release dates.
           </p>
 
           {/* Hero Quick Search Bar */}
@@ -161,7 +136,7 @@ export default function HomePage({
             <span style={{ fontSize: '18px', marginRight: 10, color: '#38bdf8' }}>🔍</span>
             <input
               type="text"
-              placeholder="Search for Movies, Theatres, or Genres..."
+              placeholder="Search movies by title, actor, or genre..."
               value={heroSearchQuery}
               onChange={(e) => setHeroSearchQuery(e.target.value)}
               style={{
@@ -183,41 +158,20 @@ export default function HomePage({
           </form>
 
           {/* Quick Shortcuts */}
-          <div style={{ display: 'flex', gap: 12, marginTop: 20, flexWrap: 'wrap' }}>
-            <button
-              className="btn btn-secondary"
-              style={{ fontSize: '13px', padding: '6px 14px' }}
-              onClick={() => setActiveMovieTab('now-showing')}
-            >
-              🔥 Now In Theatres
-            </button>
-            <button
-              className="btn btn-secondary"
-              style={{ fontSize: '13px', padding: '6px 14px' }}
-              onClick={() => setActiveMovieTab('latest')}
-            >
-              🆕 Latest (Last 30 Days)
-            </button>
-            <button
-              className="btn btn-secondary"
-              style={{ fontSize: '13px', padding: '6px 14px' }}
-              onClick={() => setActiveMovieTab('upcoming')}
-            >
-              🗓️ Coming Soon
-            </button>
+          <div style={{ display: 'flex', gap: 12, marginTop: 18, flexWrap: 'wrap' }}>
             <Link
               to="/theatres"
               className="btn btn-secondary"
-              style={{ fontSize: '13px', padding: '6px 14px', textDecoration: 'none' }}
+              style={{ fontSize: '13px', padding: '7px 16px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
             >
-              📍 Nearby Theatres
+              📍 Discover Theatres &amp; Showtimes ➔
             </Link>
           </div>
         </div>
       </section>
 
       {/* =========================================================================
-          SECTION 1: MOVIES SHOWCASE (NOW SHOWING / LATEST RELEASES / UPCOMING)
+          SECTION A: NOW SHOWING IN THEATRES (FIRST AT THE TOP)
           ========================================================================= */}
       <section style={{ marginBottom: 48 }}>
         <div
@@ -232,56 +186,40 @@ export default function HomePage({
             marginBottom: 24,
           }}
         >
-          {/* Section Tab Switchers */}
-          <div className="view-tabs" style={{ borderBottom: 'none', paddingBottom: 0 }}>
-            <button
-              className={`view-tab ${activeMovieTab === 'now-showing' ? 'active' : ''}`}
-              onClick={() => setActiveMovieTab('now-showing')}
-              style={{ fontSize: '15px', fontWeight: 700 }}
-            >
-              <span className="live-indicator"></span> Now In Theatres
-            </button>
-            <button
-              className={`view-tab ${activeMovieTab === 'latest' ? 'active' : ''}`}
-              onClick={() => setActiveMovieTab('latest')}
-              style={{ fontSize: '15px', fontWeight: 700 }}
-            >
-              🆕 Latest Releases
-            </button>
-            <button
-              className={`view-tab ${activeMovieTab === 'upcoming' ? 'active' : ''}`}
-              onClick={() => setActiveMovieTab('upcoming')}
-              style={{ fontSize: '15px', fontWeight: 700 }}
-            >
-              🗓️ Coming Soon
-            </button>
+          <div>
+            <h2 style={{ fontSize: '22px', fontWeight: 800, color: '#f8fafc', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className="live-indicator"></span> Now Showing in Theatres
+            </h2>
+            <p style={{ color: '#94a3b8', fontSize: '13px', margin: '4px 0 0 0' }}>
+              Verified live theatrical screenings in Indian cinemas
+            </p>
           </div>
 
           <Link
-            to={activeMovieTab === 'upcoming' ? '/upcoming' : '/now-showing'}
+            to="/now-showing"
             style={{ color: '#38bdf8', fontSize: '13px', fontWeight: 600, textDecoration: 'none' }}
           >
-            View All Movies ➔
+            View All Now Showing ➔
           </Link>
         </div>
 
-        {/* Loading Spinner */}
-        {currentLoading ? (
-          <div style={{ textAlign: 'center', padding: '50px 0', color: '#94a3b8' }}>
+        {/* Section A Movie Grid */}
+        {loadingNowShowing ? (
+          <div style={{ textAlign: 'center', padding: '40px 0', color: '#94a3b8' }}>
             <div style={{ fontSize: '38px', marginBottom: '12px', animation: 'spin 2s linear infinite' }}>🍿</div>
             <p>Loading theatrical titles...</p>
           </div>
-        ) : currentList.length === 0 ? (
+        ) : nowShowing.length === 0 ? (
           <div className="card" style={{ textAlign: 'center', padding: '40px 20px', borderRadius: 12 }}>
-            <p style={{ color: '#94a3b8' }}>No movies available in this category currently.</p>
+            <p style={{ color: '#94a3b8' }}>No verified theatrical screenings currently reported for this region.</p>
           </div>
         ) : (
           <div className="movies-grid">
-            {currentList.map((movie) => {
-              const isUpcoming = movie.isUpcoming || (movie.releaseDate && new Date(movie.releaseDate) > new Date());
+            {nowShowing.map((movie) => {
+              const ratingVal = movie.rating && movie.rating > 0 ? movie.rating.toFixed(1) : null;
               return (
                 <div
-                  key={movie.id || movie.tmdbId}
+                  key={`now-${movie.id || movie.tmdbId}`}
                   className="movie-card"
                   onClick={() => handleMovieClick(movie)}
                   style={{ cursor: 'pointer' }}
@@ -294,49 +232,30 @@ export default function HomePage({
                       onError={(e) => handlePosterError(e, movie.title)}
                       loading="lazy"
                     />
-                    {isUpcoming ? (
-                      <span
-                        style={{
-                          position: 'absolute',
-                          top: 8,
-                          right: 8,
-                          background: 'rgba(217, 119, 6, 0.9)',
-                          color: '#fff',
-                          fontSize: '11px',
-                          fontWeight: 700,
-                          padding: '3px 8px',
-                          borderRadius: 6,
-                          backdropFilter: 'blur(4px)',
-                        }}
-                      >
-                        🗓️ {movie.releaseDate ? new Date(movie.releaseDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'COMING SOON'}
-                      </span>
-                    ) : (
-                      <span
-                        style={{
-                          position: 'absolute',
-                          top: 8,
-                          right: 8,
-                          background: 'rgba(16, 185, 129, 0.9)',
-                          color: '#fff',
-                          fontSize: '11px',
-                          fontWeight: 700,
-                          padding: '3px 8px',
-                          borderRadius: 6,
-                          backdropFilter: 'blur(4px)',
-                        }}
-                      >
-                        🟢 NOW PLAYING
-                      </span>
-                    )}
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: 8,
+                        right: 8,
+                        background: 'rgba(16, 185, 129, 0.92)',
+                        color: '#fff',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        padding: '3px 8px',
+                        borderRadius: 6,
+                        backdropFilter: 'blur(4px)',
+                      }}
+                    >
+                      🟢 IN CINEMAS
+                    </span>
 
-                    {movie.rating > 0 && (
+                    {ratingVal && (
                       <span
                         style={{
                           position: 'absolute',
                           bottom: 8,
                           left: 8,
-                          background: 'rgba(15, 23, 42, 0.85)',
+                          background: 'rgba(15, 23, 42, 0.88)',
                           color: '#fbbf24',
                           fontSize: '12px',
                           fontWeight: 700,
@@ -345,7 +264,7 @@ export default function HomePage({
                           border: '1px solid rgba(251, 191, 36, 0.3)',
                         }}
                       >
-                        ★ {movie.rating.toFixed(1)}
+                        ★ {ratingVal}
                       </span>
                     )}
                   </div>
@@ -375,7 +294,7 @@ export default function HomePage({
                         textOverflow: 'ellipsis',
                       }}
                     >
-                      {movie.genre || 'Action, Drama'}
+                      {movie.genre || 'Action / Drama'}
                     </p>
                     <div
                       style={{
@@ -397,7 +316,7 @@ export default function HomePage({
                           handleMovieClick(movie);
                         }}
                       >
-                        {isUpcoming ? 'View Details' : 'Book Show'}
+                        Book Show
                       </button>
                     </div>
                   </div>
@@ -409,27 +328,145 @@ export default function HomePage({
       </section>
 
       {/* =========================================================================
-          SECTION 2: NEARBY THEATRES & REAL STAGGERED SHOWTIMES
+          SECTION B: COMING SOON (BELOW NOW SHOWING)
           ========================================================================= */}
-      <section style={{ marginTop: 20 }}>
-        <div style={{ marginBottom: 20 }}>
-          <h2 style={{ fontSize: '22px', fontWeight: 700, color: '#f8fafc', marginBottom: 6 }}>
-            📍 Nearby Theatres &amp; Staggered Showtimes
-          </h2>
-          <p style={{ color: '#94a3b8', fontSize: '14px' }}>
-            Find the closest cinema screens based on your exact coordinates with chain-specific show scheduling and realistic pricing.
-          </p>
+      <section style={{ marginBottom: 48 }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 12,
+            borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+            paddingBottom: 14,
+            marginBottom: 24,
+          }}
+        >
+          <div>
+            <h2 style={{ fontSize: '22px', fontWeight: 800, color: '#f8fafc', margin: 0 }}>
+              🗓️ Coming Soon to Indian Theatres
+            </h2>
+            <p style={{ color: '#94a3b8', fontSize: '13px', margin: '4px 0 0 0' }}>
+              Upcoming Indian theatrical releases with verified future premiere dates
+            </p>
+          </div>
+
+          <Link
+            to="/upcoming"
+            style={{ color: '#38bdf8', fontSize: '13px', fontWeight: 600, textDecoration: 'none' }}
+          >
+            View All Upcoming ➔
+          </Link>
         </div>
 
-        <BmsCinemaTracker
-          selectedCity={selectedCity}
-          onCityChange={onCityChange}
-          onSelectShow={handleShowClick}
-          userLocation={userCoords}
-          onLocationDetected={onLocationDetected}
-        />
+        {/* Section B Movie Grid */}
+        {loadingComingSoon ? (
+          <div style={{ textAlign: 'center', padding: '40px 0', color: '#94a3b8' }}>
+            <div style={{ fontSize: '38px', marginBottom: '12px', animation: 'spin 2s linear infinite' }}>🍿</div>
+            <p>Loading upcoming releases...</p>
+          </div>
+        ) : comingSoon.length === 0 ? (
+          <div className="card" style={{ textAlign: 'center', padding: '40px 20px', borderRadius: 12 }}>
+            <p style={{ color: '#94a3b8' }}>No upcoming theatrical releases scheduled in the near future.</p>
+          </div>
+        ) : (
+          <div className="movies-grid">
+            {comingSoon.map((movie) => {
+              const releaseDateFormatted = movie.releaseDate
+                ? new Date(movie.releaseDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                : 'COMING SOON';
+
+              return (
+                <div
+                  key={`soon-${movie.id || movie.tmdbId}`}
+                  className="movie-card"
+                  onClick={() => handleMovieClick(movie)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <div style={{ position: 'relative' }}>
+                    <img
+                      src={movie.posterUrl || getFallbackPosterSvg(movie.title)}
+                      alt={movie.title}
+                      className="movie-poster"
+                      onError={(e) => handlePosterError(e, movie.title)}
+                      loading="lazy"
+                    />
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: 8,
+                        right: 8,
+                        background: 'rgba(217, 119, 6, 0.92)',
+                        color: '#fff',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        padding: '3px 8px',
+                        borderRadius: 6,
+                        backdropFilter: 'blur(4px)',
+                      }}
+                    >
+                      🗓️ {releaseDateFormatted}
+                    </span>
+                  </div>
+
+                  <div className="movie-info" style={{ padding: '14px' }}>
+                    <h3
+                      style={{
+                        fontSize: '15px',
+                        fontWeight: 700,
+                        color: '#f8fafc',
+                        marginBottom: 4,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                      title={movie.title}
+                    >
+                      {movie.title}
+                    </h3>
+                    <p
+                      style={{
+                        fontSize: '12px',
+                        color: '#94a3b8',
+                        marginBottom: 10,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {movie.genre || 'Action / Drama'}
+                    </p>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        fontSize: '12px',
+                        color: '#cbd5e1',
+                      }}
+                    >
+                      <span style={{ color: '#f59e0b', fontWeight: 600 }}>
+                        Releases {releaseDateFormatted}
+                      </span>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        style={{ padding: '4px 12px', fontSize: '11px', fontWeight: 600 }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleMovieClick(movie);
+                        }}
+                      >
+                        View Details
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </section>
     </div>
   );
 }
-

@@ -670,7 +670,7 @@ public class TmdbMovieService {
             return cached.getData();
         }
 
-        String uri = "/movie/" + tmdbId + "?language=en-US&append_to_response=credits";
+        String uri = "/movie/" + tmdbId + "?language=en-US&append_to_response=credits,release_dates,external_ids";
         try {
             String jsonResponse = executeRawGet(uri);
             JsonNode root = objectMapper.readTree(jsonResponse);
@@ -1011,6 +1011,40 @@ public class TmdbMovieService {
         String overview = m.path("overview").asText("");
         String releaseDateStr = m.path("release_date").asText("");
 
+        // 1. External IMDb ID if provided in response or appended external_ids
+        String imdbId = null;
+        if (m.has("external_ids") && m.path("external_ids").has("imdb_id")) {
+            imdbId = m.path("external_ids").path("imdb_id").asText(null);
+        } else if (m.has("imdb_id")) {
+            imdbId = m.path("imdb_id").asText(null);
+        }
+
+        // 2. Indian regional theatrical release date if present in release_dates
+        if (m.has("release_dates") && m.path("release_dates").has("results")) {
+            for (JsonNode country : m.path("release_dates").path("results")) {
+                if ("IN".equalsIgnoreCase(country.path("iso_3166_1").asText())) {
+                    JsonNode dates = country.path("release_dates");
+                    if (dates.isArray() && dates.size() > 0) {
+                        String inTheatricalDate = null;
+                        for (JsonNode d : dates) {
+                            int type = d.path("type").asInt(0);
+                            if (type == 3) { // Theatrical Release
+                                inTheatricalDate = d.path("release_date").asText("");
+                                break;
+                            }
+                        }
+                        if (inTheatricalDate == null && dates.size() > 0) {
+                            inTheatricalDate = dates.get(0).path("release_date").asText("");
+                        }
+                        if (inTheatricalDate != null && inTheatricalDate.length() >= 10) {
+                            releaseDateStr = inTheatricalDate.substring(0, 10);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
         String posterPath = m.path("poster_path").asText(null);
         String posterUrl = (posterPath != null && !posterPath.isBlank() && !posterPath.equals("null"))
                 ? "https://image.tmdb.org/t/p/w500" + posterPath
@@ -1049,12 +1083,13 @@ public class TmdbMovieService {
                 releaseDate = LocalDate.parse(releaseDateStr);
             } catch (Exception ignored) {}
         }
-        boolean isUpcoming = (releaseDate != null) && releaseDate.isAfter(LocalDate.now());
+        LocalDate todayInIndia = LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"));
+        boolean isUpcoming = (releaseDate != null) && releaseDate.isAfter(todayInIndia);
 
         boolean hasShows = false;
         try {
             if (showRepository != null) {
-                hasShows = showRepository.hasActiveBookableShowsByMovieOrTitle(id, title, LocalDateTime.now().minusMinutes(30));
+                hasShows = showRepository.hasActiveBookableShowsByMovieOrTitle(id, title, LocalDateTime.now(java.time.ZoneId.of("Asia/Kolkata")).minusMinutes(30));
             }
         } catch (Exception ignored) {}
 
@@ -1083,6 +1118,7 @@ public class TmdbMovieService {
 
         return TmdbMovieDto.builder()
                 .id(id)
+                .imdbId(imdbId)
                 .title(title)
                 .overview(overview)
                 .releaseDate(releaseDateStr)
@@ -1242,5 +1278,10 @@ public class TmdbMovieService {
             }
             return data;
         }
+    }
+
+    public void clearPageCache() {
+        pageCache.clear();
+        movieDetailCache.clear();
     }
 }

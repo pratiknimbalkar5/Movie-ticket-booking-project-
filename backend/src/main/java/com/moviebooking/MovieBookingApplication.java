@@ -2,6 +2,7 @@ package com.moviebooking;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 import java.io.BufferedReader;
 import java.nio.file.Files;
@@ -12,6 +13,7 @@ import java.nio.file.Paths;
  * Entry point of the Movie Ticket Booking System.
  */
 @SpringBootApplication
+@EnableScheduling
 public class MovieBookingApplication {
 
     static {

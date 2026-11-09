@@ -136,6 +136,7 @@ public class MovieService {
         return MovieResponse.builder()
                 .id(movie.getId())
                 .tmdbId(movie.getTmdbId())
+                .imdbId(movie.getImdbId())
                 .title(movie.getTitle())
                 .description(movie.getDescription())
                 .genre(movie.getGenre())

@@ -11,6 +11,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class TmdbMovieDto {
     private Long id;              // TMDB external ID
+    private String imdbId;        // IMDb external ID (ttXXXXXXX)
     private Long localMovieId;    // Local database ID (for booking showtimes)
     private String title;
     private String overview;

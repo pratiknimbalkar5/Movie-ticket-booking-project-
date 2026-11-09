@@ -35,6 +35,12 @@ public class Movie {
     @Column(name = "tmdb_id")
     private Long tmdbId;
 
+    /**
+     * External IMDb ID for cross-referencing with International Showtimes and external registries.
+     */
+    @Column(name = "imdb_id", length = 30)
+    private String imdbId;
+
     @Column(nullable = false, length = 200)
     private String title;
 
@@ -88,6 +94,9 @@ public class Movie {
 
     public Long getTmdbId() { return tmdbId; }
     public void setTmdbId(Long tmdbId) { this.tmdbId = tmdbId; }
+
+    public String getImdbId() { return imdbId; }
+    public void setImdbId(String imdbId) { this.imdbId = imdbId; }
 
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }

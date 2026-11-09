@@ -43,3 +43,4 @@ public class LocationController {
         return ResponseEntity.ok(ApiResponse.success(location));
     }
 }
+
