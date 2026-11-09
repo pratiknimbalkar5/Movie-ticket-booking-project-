@@ -250,19 +250,40 @@ public class TmdbMovieService {
                     })
                     .collect(Collectors.toCollection(ArrayList::new));
 
-            // Enrich with verified live scheduled movies from local database so now-playing is rich and bookable
+            // Enrich TMDB movies with verified local bookable show status and local IDs
             List<Movie> localLive = movieRepository.findByIsActiveTrueAndIsUpcomingFalseOrderByRatingDesc();
+            for (TmdbMovieDto dto : currentMovies) {
+                for (Movie lm : localLive) {
+                    boolean tmdbMatch = (dto.getId() != null && dto.getId().equals(lm.getTmdbId()));
+                    boolean titleMatch = (dto.getTitle() != null && lm.getTitle() != null && dto.getTitle().trim().equalsIgnoreCase(lm.getTitle().trim()));
+                    if (tmdbMatch || titleMatch) {
+                        dto.setLocalMovieId(lm.getId());
+                        boolean hasShows = showRepository.hasActiveBookableShows(lm.getId(), LocalDateTime.now().minusHours(2));
+                        dto.setHasBookableShows(hasShows);
+                        break;
+                    }
+                }
+            }
+
+            // Strictly filter local database candidates: must have active shows, valid recent release date (<=45 days), and valid TMDB ID
             for (Movie lm : localLive) {
+                if (lm.getReleaseDate() == null || lm.getReleaseDate().isBefore(today.minusDays(45)) || lm.getReleaseDate().isAfter(today)) {
+                    continue; // Skip legacy or future movies
+                }
+                boolean hasShows = showRepository.hasActiveBookableShows(lm.getId(), LocalDateTime.now().minusHours(2));
+                if (!hasShows) {
+                    continue; // Skip movies without active verified showtimes
+                }
                 boolean alreadyInList = currentMovies.stream().anyMatch(dto ->
-                        dto.getTitle().equalsIgnoreCase(lm.getTitle()) ||
-                        (dto.getId() != null && dto.getId().equals(lm.getTmdbId())));
-                if (!alreadyInList) {
-                    currentMovies.add(0, TmdbMovieDto.builder()
-                            .id(lm.getTmdbId() != null ? lm.getTmdbId() : lm.getId())
+                        (dto.getId() != null && dto.getId().equals(lm.getTmdbId())) ||
+                        (dto.getTitle() != null && lm.getTitle() != null && dto.getTitle().trim().equalsIgnoreCase(lm.getTitle().trim())));
+                if (!alreadyInList && lm.getTmdbId() != null) {
+                    currentMovies.add(TmdbMovieDto.builder()
+                            .id(lm.getTmdbId())
                             .localMovieId(lm.getId())
                             .title(lm.getTitle())
                             .overview(lm.getDescription())
-                            .releaseDate(lm.getReleaseDate() != null ? lm.getReleaseDate().toString() : today.toString())
+                            .releaseDate(lm.getReleaseDate().toString())
                             .posterUrl(lm.getPosterUrl())
                             .rating(lm.getRating() != null ? lm.getRating() : 7.8)
                             .language(lm.getLanguage() != null ? lm.getLanguage() : "Hindi / English")

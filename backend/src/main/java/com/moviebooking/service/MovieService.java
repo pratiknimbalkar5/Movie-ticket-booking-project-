@@ -33,6 +33,7 @@ public class MovieService {
     @Transactional(readOnly = true)
     public MovieResponse getMovieById(Long id) {
         Movie movie = movieRepository.findByIdAndIsActiveTrue(id)
+                .or(() -> movieRepository.findByTmdbId(id))
                 .orElseThrow(() -> new ResourceNotFoundException("Movie not found with id: " + id));
         return mapToResponse(movie);
     }

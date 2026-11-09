@@ -115,36 +115,39 @@ public class DataInitializer {
                                 .build(),
                         Movie.builder()
                                 .title("Jailer 2")
+                                .tmdbId(1234139L)
                                 .description("Tiger Muthuvel Pandian is drawn out of peaceful retirement into an international syndicate confrontation spanning Tamil Nadu, Karnataka, and Mumbai.")
                                 .genre("Action / Crime / Drama")
                                 .durationMinutes(168)
                                 .language("Tamil / Telugu / Hindi")
                                 .releaseDate(LocalDate.now().minusDays(10))
-                                .posterUrl("https://image.tmdb.org/t/p/w500/eSpGBv7gDk3P4Xm5gU8X490v5Yn.jpg")
+                                .posterUrl("https://image.tmdb.org/t/p/w500/upwdEyhhYZ7pT2hD535fr2MGfpx.jpg")
                                 .rating(8.2)
                                 .isUpcoming(false)
                                 .isActive(true)
                                 .build(),
                         Movie.builder()
                                 .title("Drishyam: The Conclusion")
+                                .tmdbId(1269325L)
                                 .description("Vijay Salgaonkar faces his ultimate cerebral face-off with police investigators as decades-buried secrets resurface in Goa.")
                                 .genre("Thriller / Drama")
                                 .durationMinutes(152)
                                 .language("Hindi")
                                 .releaseDate(LocalDate.now().minusDays(22))
-                                .posterUrl("https://image.tmdb.org/t/p/w500/gO9FhR37f0UdfT7P5H67uM3R2wK.jpg")
+                                .posterUrl("https://image.tmdb.org/t/p/w500/67FsF2kpgEZ1T5Qos4adgqm9dLf.jpg")
                                 .rating(7.9)
                                 .isUpcoming(false)
                                 .isActive(true)
                                 .build(),
                         Movie.builder()
-                                .title("Fall 2: Deadpoint")
-                                .description("Thrill-seekers scale the most lethal mountain face in the southern hemisphere, facing sheer vertical terror when their descent equipment fails.")
-                                .genre("Thriller / Adventure")
-                                .durationMinutes(108)
+                                .title("Verity")
+                                .tmdbId(1283515L)
+                                .description("A struggling writer accepts the job offer of a lifetime to finish the remaining books of a successful series after the author was injured.")
+                                .genre("Thriller / Mystery / Romance")
+                                .durationMinutes(115)
                                 .language("English / Hindi")
                                 .releaseDate(LocalDate.now().minusDays(15))
-                                .posterUrl("https://image.tmdb.org/t/p/w500/aK7pL5rQ8YdE3B2w8C6vJ3r9xYl.jpg")
+                                .posterUrl("https://image.tmdb.org/t/p/w500/rmaNMA1seHqpjtnYKzyynFAr1g8.jpg")
                                 .rating(7.3)
                                 .isUpcoming(false)
                                 .isActive(true)
@@ -157,79 +160,85 @@ public class DataInitializer {
                                 .durationMinutes(120)
                                 .language("English / Hindi")
                                 .releaseDate(LocalDate.now().minusDays(9))
-                                .posterUrl("https://image.tmdb.org/t/p/w500/vGXptEdgZIhPg3cGlc7e8sNPC2e.jpg")
+                                .posterUrl("https://image.tmdb.org/t/p/w500/8nP4lF51Ea861YfHEEqhZBLYv3e.jpg")
                                 .rating(6.8)
                                 .isUpcoming(false)
                                 .isActive(true)
                                 .build(),
                         Movie.builder()
-                                .title("Toxic")
-                                .description("A fairy tale for grown-ups: An international cartel kingpin weaves through the underbelly of drug empires and vengeance across coastal India.")
-                                .genre("Action / Crime Thriller")
-                                .durationMinutes(160)
-                                .language("Kannada / Hindi / Telugu / Tamil")
-                                .releaseDate(LocalDate.now().minusDays(18))
-                                .posterUrl("https://image.tmdb.org/t/p/w500/6izwz7rsy95ARzTR3poZ8H6c5pp.jpg")
+                                .title("Mookuthi Amman 2")
+                                .tmdbId(1327835L)
+                                .description("A queen sacrifices herself to protect her son from invading enemies. Mookuthi Amman returns to protect the child and confronts a new evil.")
+                                .genre("Fantasy / Comedy / Drama")
+                                .durationMinutes(145)
+                                .language("Tamil / Telugu / Hindi")
+                                .releaseDate(LocalDate.now().minusDays(3))
+                                .posterUrl("https://image.tmdb.org/t/p/w500/dNNzsstJeQxnESyH0hZcLGblLMz.jpg")
                                 .rating(8.1)
                                 .isUpcoming(false)
                                 .isActive(true)
                                 .build(),
                         Movie.builder()
-                                .title("Runner")
-                                .description("An underground courier in Mumbai's neon labyrinth has ninety minutes to deliver an encrypted drive across the city before hitmen intercept.")
-                                .genre("Action / Thriller")
-                                .durationMinutes(114)
+                                .title("Wild Horse Nine")
+                                .tmdbId(891621L)
+                                .description("Shortly before the 1973 Chilean coup, CIA agents Chris and Lee are dispatched from Santiago to Easter Island amidst iconic statues.")
+                                .genre("Comedy / Mystery")
+                                .durationMinutes(112)
                                 .language("English / Hindi")
-                                .releaseDate(LocalDate.now().minusDays(7))
-                                .posterUrl("https://image.tmdb.org/t/p/w500/nfnhwfUEFuSOxxf4jDdBlY6Lccw.jpg")
+                                .releaseDate(LocalDate.now().minusDays(3))
+                                .posterUrl("https://image.tmdb.org/t/p/w500/dNJFRtVg3xLQ7dbNIQ55cmmIniD.jpg")
+                                .rating(8.1)
+                                .isUpcoming(false)
+                                .isActive(true)
+                                .build(),
+                        Movie.builder()
+                                .title("Scene")
+                                .tmdbId(1402181L)
+                                .description("Inbaraj, a police officer, is forced to come back from retirement when a new case resembles one he closed years ago.")
+                                .genre("Comedy / Crime / Thriller")
+                                .durationMinutes(135)
+                                .language("Tamil / Hindi")
+                                .releaseDate(LocalDate.now().minusDays(3))
+                                .posterUrl("https://image.tmdb.org/t/p/w500/1vjVJKpdT6gha7cpkmDJODpk8mU.jpg")
                                 .rating(8.4)
                                 .isUpcoming(false)
                                 .isActive(true)
                                 .build(),
                         Movie.builder()
-                                .title("Resident Evil")
-                                .description("In the depths of an abandoned bio-research metropolis, a specialized tactical team encounters the origin strain of Umbrella's catastrophic viral mutations.")
-                                .genre("Sci-Fi / Horror / Action")
-                                .durationMinutes(118)
-                                .language("English / Hindi")
-                                .releaseDate(LocalDate.now().minusDays(14))
-                                .posterUrl("https://image.tmdb.org/t/p/w500/2uSWRTtCG336nuBiG8jOTEUKSy8.jpg")
-                                .rating(7.4)
-                                .isUpcoming(false)
-                                .isActive(true)
-                                .build(),
-                        Movie.builder()
-                                .title("Dhurandhar")
-                                .description("An undercover RAW intelligence team infiltrates hostile territory on a lethal counter-terrorism mission involving international espionage.")
-                                .genre("Action / Espionage Thriller")
+                                .title("Ranabaali")
+                                .tmdbId(1389379L)
+                                .description("Set in 19th-century British India, a fierce leader rises from a drought-stricken land to fight colonial oppression and atrocities.")
+                                .genre("Action / Period Drama / Thriller")
                                 .durationMinutes(155)
-                                .language("Hindi")
-                                .releaseDate(LocalDate.now().minusDays(4))
-                                .posterUrl("https://image.tmdb.org/t/p/w500/1T21FblunT0y8fz7YaW8JMYgUKm.jpg")
+                                .language("Telugu / Hindi")
+                                .releaseDate(LocalDate.now().minusDays(8))
+                                .posterUrl("https://image.tmdb.org/t/p/w500/cXaCyYYbafVyMrs8rwKmxezBYPJ.jpg")
                                 .rating(7.7)
                                 .isUpcoming(false)
                                 .isActive(true)
                                 .build(),
                         Movie.builder()
-                                .title("Reporting Live")
-                                .description("An investigative broadcast journalist breaks a sensational corporate conspiracy on prime time television, only to find herself relentlessly pursued.")
-                                .genre("Thriller / Mystery")
-                                .durationMinutes(126)
+                                .title("Bhool Bhulaiyaa 3")
+                                .tmdbId(1196470L)
+                                .description("Rooh Baba ventures into a haunted mansion in West Bengal, confronting two vengeful spirits claiming to be Manjulika.")
+                                .genre("Comedy / Horror")
+                                .durationMinutes(158)
                                 .language("Hindi")
-                                .releaseDate(LocalDate.now().minusDays(16))
+                                .releaseDate(LocalDate.now().minusDays(8))
                                 .posterUrl("https://image.tmdb.org/t/p/w500/3AfHD1HoaQpQwKH8kxRdBKVmzeU.jpg")
                                 .rating(7.1)
                                 .isUpcoming(false)
                                 .isActive(true)
                                 .build(),
                         Movie.builder()
-                                .title("The Paradise")
-                                .description("A wealthy resort island in the Indian Ocean becomes an arena of life and death when an armed syndicate takes holidaymakers hostage.")
-                                .genre("Action / Suspense")
+                                .title("Disco")
+                                .tmdbId(1612811L)
+                                .description("An ordinary man undergoes a dramatic transformation as he enters the dark and dangerous world of the underworld.")
+                                .genre("Action / Crime / Thriller")
                                 .durationMinutes(130)
-                                .language("Telugu / Hindi")
-                                .releaseDate(LocalDate.now().minusDays(20))
-                                .posterUrl("https://image.tmdb.org/t/p/w500/2cxhvwyEwRlysAmRH4iodkvo0z5.jpg")
+                                .language("Malayalam / Hindi")
+                                .releaseDate(LocalDate.now().minusDays(3))
+                                .posterUrl("https://image.tmdb.org/t/p/w500/yZ3AeO4bGYkSVT4onkAbLPTOSXe.jpg")
                                 .rating(7.2)
                                 .isUpcoming(false)
                                 .isActive(true)
@@ -307,11 +316,89 @@ public class DataInitializer {
                 log.info("Seeded {} fresh 2025-2026 live and upcoming movies", freshCatalog.size());
             }
 
-            // Database Self-Healing: Repair existing database records with authentic TMDB posters
+            // Database Self-Healing: Repair existing database records with authentic TMDB posters and purge old/synthetic records
             try {
                 List<Movie> existingMovies = movieRepository.findAll();
                 for (Movie m : existingMovies) {
-                    if (m.getTmdbId() != null && (m.getPosterUrl() == null || m.getPosterUrl().contains("3Yk8rZz6K29D5T5OQ3b8F9s7a6z") || m.getPosterUrl().contains("qqHFLg90IUSoTmSMpKOOW5RyqN3") || m.getPosterUrl().contains("rstcAnBeCkxNQjNp3YXrF6IP1tW"))) {
+                    String title = m.getTitle() != null ? m.getTitle().trim() : "";
+                    
+                    // 1. Fix "Reporting Live" mismatch -> "Bhool Bhulaiyaa 3" (TMDB 1196470)
+                    if ("Reporting Live".equalsIgnoreCase(title)) {
+                        m.setTitle("Bhool Bhulaiyaa 3");
+                        m.setTmdbId(1196470L);
+                        m.setGenre("Comedy / Horror");
+                        m.setDescription("Rooh Baba ventures into a haunted mansion in West Bengal, confronting two vengeful spirits claiming to be Manjulika.");
+                        m.setPosterUrl("https://image.tmdb.org/t/p/w500/3AfHD1HoaQpQwKH8kxRdBKVmzeU.jpg");
+                        m.setReleaseDate(LocalDate.now().minusDays(8));
+                        movieRepository.save(m);
+                    }
+                    // 2. Fix other synthetic titles from old initializer to genuine TMDB titles
+                    else if ("Fall 2: Deadpoint".equalsIgnoreCase(title)) {
+                        m.setTitle("Verity");
+                        m.setTmdbId(1283515L);
+                        m.setGenre("Thriller / Mystery / Romance");
+                        m.setDescription("A struggling writer accepts the job offer of a lifetime to finish the remaining books of a successful series.");
+                        m.setPosterUrl("https://image.tmdb.org/t/p/w500/rmaNMA1seHqpjtnYKzyynFAr1g8.jpg");
+                        movieRepository.save(m);
+                    }
+                    else if ("The Paradise".equalsIgnoreCase(title)) {
+                        m.setTitle("Disco");
+                        m.setTmdbId(1612811L);
+                        m.setGenre("Action / Crime / Thriller");
+                        m.setDescription("An ordinary man undergoes a dramatic transformation as he enters the underworld.");
+                        m.setPosterUrl("https://image.tmdb.org/t/p/w500/yZ3AeO4bGYkSVT4onkAbLPTOSXe.jpg");
+                        movieRepository.save(m);
+                    }
+                    else if ("Runner".equalsIgnoreCase(title)) {
+                        m.setTitle("Wild Horse Nine");
+                        m.setTmdbId(891621L);
+                        m.setGenre("Comedy / Mystery");
+                        m.setDescription("Shortly before the 1973 Chilean coup, CIA agents are dispatched to Easter Island amidst iconic statues.");
+                        m.setPosterUrl("https://image.tmdb.org/t/p/w500/dNJFRtVg3xLQ7dbNIQ55cmmIniD.jpg");
+                        movieRepository.save(m);
+                    }
+                    else if ("Resident Evil".equalsIgnoreCase(title)) {
+                        m.setTitle("Scene");
+                        m.setTmdbId(1402181L);
+                        m.setGenre("Comedy / Crime / Thriller");
+                        m.setDescription("Inbaraj, a police officer, is forced to come back from retirement when a new case resembles one he closed years ago.");
+                        m.setPosterUrl("https://image.tmdb.org/t/p/w500/1vjVJKpdT6gha7cpkmDJODpk8mU.jpg");
+                        movieRepository.save(m);
+                    }
+                    else if ("Dhurandhar".equalsIgnoreCase(title)) {
+                        m.setTitle("Ranabaali");
+                        m.setTmdbId(1389379L);
+                        m.setGenre("Action / Period Drama / Thriller");
+                        m.setDescription("Set in 19th-century British India, a fierce leader rises from a drought-stricken land to fight colonial oppression.");
+                        m.setPosterUrl("https://image.tmdb.org/t/p/w500/cXaCyYYbafVyMrs8rwKmxezBYPJ.jpg");
+                        movieRepository.save(m);
+                    }
+                    else if ("Toxic".equalsIgnoreCase(title)) {
+                        m.setTitle("Mookuthi Amman 2");
+                        m.setTmdbId(1327835L);
+                        m.setGenre("Fantasy / Comedy / Drama");
+                        m.setDescription("A queen sacrifices herself to protect her son. Mookuthi Amman returns to protect the child and confronts a new evil.");
+                        m.setPosterUrl("https://image.tmdb.org/t/p/w500/dNNzsstJeQxnESyH0hZcLGblLMz.jpg");
+                        movieRepository.save(m);
+                    }
+                    else if ("Jailer 2".equalsIgnoreCase(title)) {
+                        m.setTmdbId(1234139L);
+                        m.setPosterUrl("https://image.tmdb.org/t/p/w500/upwdEyhhYZ7pT2hD535fr2MGfpx.jpg");
+                        movieRepository.save(m);
+                    }
+                    else if ("Drishyam: The Conclusion".equalsIgnoreCase(title)) {
+                        m.setTmdbId(1269325L);
+                        m.setPosterUrl("https://image.tmdb.org/t/p/w500/67FsF2kpgEZ1T5Qos4adgqm9dLf.jpg");
+                        movieRepository.save(m);
+                    }
+                    // 3. Deactivate old movies (e.g. Finding Nemo 2003, Forrest Gump 1994, Judgment Night 1993)
+                    else if (m.getReleaseDate() != null && m.getReleaseDate().isBefore(LocalDate.of(2024, 1, 1))) {
+                        m.setIsActive(false);
+                        movieRepository.save(m);
+                        log.info("Deactivated legacy movie record: {} (Release: {})", m.getTitle(), m.getReleaseDate());
+                    }
+                    // 4. Poster healing for core movies
+                    else if (m.getTmdbId() != null) {
                         if (m.getTmdbId().equals(1058424L)) {
                             m.setPosterUrl("https://image.tmdb.org/t/p/w500/6VY1ZKgpsc8CfGsQcCGiYEgHdH0.jpg");
                             m.setImdbId("tt27369017");
@@ -325,7 +412,9 @@ public class DataInitializer {
                         }
                     }
                 }
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                log.warn("Database self-healing warning: {}", e.getMessage());
+            }
 
             // 4. Seed Premier Residential Cinema Theatres across 36+ Major Indian Cities
             if (theatreRepository.count() < 30) {

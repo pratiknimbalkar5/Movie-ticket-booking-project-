@@ -57,9 +57,19 @@ export default function MovieDetailPage({
       .catch(() => {});
   }, []);
 
-  // Fetch movie by ID if directly accessed via URL
+  // Sync incoming movie or fetch movie by ID whenever route paramId changes
   useEffect(() => {
-    if (!movie && paramId) {
+    if (location.state?.movie) {
+      const stateMovie = location.state.movie;
+      const stateId = String(stateMovie.tmdbId || stateMovie.id || stateMovie.localMovieId);
+      if (stateId === String(paramId) || String(stateMovie.id) === String(paramId)) {
+        setMovie(stateMovie);
+        setLoadingMovie(false);
+        return;
+      }
+    }
+
+    if (paramId) {
       setLoadingMovie(true);
       setMovieError('');
       api.get(`/movies/${paramId}`)
@@ -75,7 +85,7 @@ export default function MovieDetailPage({
         })
         .finally(() => setLoadingMovie(false));
     }
-  }, [paramId, movie]);
+  }, [paramId, location.state]);
 
   // Sync city if parent changes
   useEffect(() => {
@@ -123,18 +133,19 @@ export default function MovieDetailPage({
 
   // Sync TMDB movie to local database if needed
   useEffect(() => {
-    if (movie && movie.id) {
-      api.post(`/movies/tmdb/${movie.id}/sync-local`)
+    const syncTargetId = movie?.tmdbId || movie?.id;
+    if (syncTargetId && !movie?.localMovieId) {
+      api.post(`/movies/tmdb/${syncTargetId}/sync-local`)
         .then((res) => {
           if (res.data?.data?.id) {
             setResolvedMovieId(res.data.data.id);
           }
         })
         .catch(() => {
-          // If sync fails, continue with movie.id
+          // If sync fails, continue with syncTargetId
         });
     }
-  }, [movie?.id]);
+  }, [movie?.id, movie?.tmdbId, movie?.localMovieId]);
 
   // Fetch shows whenever movie, city, or date changes
   useEffect(() => {

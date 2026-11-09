@@ -61,7 +61,8 @@ export default function HomePage({
 
   const handleMovieClick = (movie) => {
     if (onSelectMovie) onSelectMovie(movie);
-    const targetId = movie.localMovieId || movie.id;
+    // Always navigate using the stable TMDB / Movie ID
+    const targetId = movie.tmdbId || movie.id || movie.localMovieId;
     navigate(`/movie/${targetId}`, { state: { movie } });
   };
 
@@ -222,6 +223,14 @@ export default function HomePage({
                   key={`now-${movie.id || movie.tmdbId}`}
                   className="movie-card"
                   onClick={() => handleMovieClick(movie)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      handleMovieClick(movie);
+                    }
+                  }}
                   style={{ cursor: 'pointer' }}
                 >
                   <div style={{ position: 'relative' }}>
@@ -382,6 +391,14 @@ export default function HomePage({
                   key={`soon-${movie.id || movie.tmdbId}`}
                   className="movie-card"
                   onClick={() => handleMovieClick(movie)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      handleMovieClick(movie);
+                    }
+                  }}
                   style={{ cursor: 'pointer' }}
                 >
                   <div style={{ position: 'relative' }}>
