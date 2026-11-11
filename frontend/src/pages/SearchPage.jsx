@@ -91,8 +91,19 @@ export default function SearchPage({ onSelectMovie }) {
     executeSearch('');
   };
 
-  // Filter movies based on genre and status
+  // Filter movies based on search term, genre and status in real-time
   const filteredMovies = movies.filter((m) => {
+    // Real-time keystroke matching: eliminates unrelated suggestions while typing immediately
+    if (searchTerm && searchTerm.trim().length > 0) {
+      const q = searchTerm.trim().toLowerCase();
+      const title = (m.title || '').toLowerCase();
+      const genre = (m.genre || '').toLowerCase();
+      const overview = (m.overview || m.description || '').toLowerCase();
+      if (!title.includes(q) && !genre.includes(q) && !overview.includes(q)) {
+        return false;
+      }
+    }
+
     if (selectedGenre !== 'All') {
       const g = (m.genre || '').toLowerCase();
       if (!g.includes(selectedGenre.toLowerCase())) {
@@ -111,7 +122,7 @@ export default function SearchPage({ onSelectMovie }) {
     if (onSelectMovie) {
       onSelectMovie(movie);
     }
-    const targetId = movie.localMovieId || movie.id;
+    const targetId = movie.tmdbId || movie.id || movie.localMovieId;
     navigate(`/movie/${targetId}`, { state: { movie } });
   };
 

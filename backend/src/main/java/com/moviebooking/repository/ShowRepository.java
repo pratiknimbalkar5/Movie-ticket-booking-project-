@@ -23,6 +23,9 @@ public interface ShowRepository extends JpaRepository<Show, Long> {
            "JOIN FETCH s.screen sc " +
            "JOIN FETCH sc.theatre t " +
            "WHERE s.status = 'SCHEDULED' " +
+           "AND m.isActive = true " +
+           "AND (m.isUpcoming = false OR m.isUpcoming IS NULL) " +
+           "AND (m.releaseDate IS NULL OR m.releaseDate <= CURRENT_DATE) " +
            "AND s.showTime >= :startTime " +
            "AND (:movieId IS NULL OR m.id = :movieId OR m.tmdbId = :movieId) " +
            "AND (:city IS NULL OR LOWER(t.city) LIKE LOWER(CONCAT('%', :city, '%')) OR LOWER(:city) LIKE LOWER(CONCAT('%', t.city, '%'))) " +
@@ -37,6 +40,9 @@ public interface ShowRepository extends JpaRepository<Show, Long> {
            "JOIN FETCH s.screen sc " +
            "JOIN FETCH sc.theatre t " +
            "WHERE s.status = 'SCHEDULED' " +
+           "AND m.isActive = true " +
+           "AND (m.isUpcoming = false OR m.isUpcoming IS NULL) " +
+           "AND (m.releaseDate IS NULL OR m.releaseDate <= CURRENT_DATE) " +
            "AND s.showTime >= :startTime AND s.showTime <= :endTime " +
            "AND (:movieId IS NULL OR m.id = :movieId OR m.tmdbId = :movieId) " +
            "AND (:city IS NULL OR LOWER(t.city) LIKE LOWER(CONCAT('%', :city, '%')) OR LOWER(:city) LIKE LOWER(CONCAT('%', t.city, '%'))) " +
@@ -46,15 +52,25 @@ public interface ShowRepository extends JpaRepository<Show, Long> {
                                @Param("startTime") LocalDateTime startTime,
                                @Param("endTime") LocalDateTime endTime);
 
-    @Query("SELECT COUNT(s) > 0 FROM Show s WHERE (s.movie.id = :movieId OR s.movie.tmdbId = :movieId) AND s.status = 'SCHEDULED' AND s.showTime >= :startTime")
+    @Query("SELECT COUNT(s) > 0 FROM Show s JOIN s.movie m WHERE (m.id = :movieId OR m.tmdbId = :movieId) AND s.status = 'SCHEDULED' AND m.isActive = true AND (m.isUpcoming = false OR m.isUpcoming IS NULL) AND (m.releaseDate IS NULL OR m.releaseDate <= CURRENT_DATE) AND s.showTime >= :startTime")
     boolean hasActiveBookableShows(@Param("movieId") Long movieId, @Param("startTime") LocalDateTime startTime);
 
-    @Query("SELECT COUNT(s) > 0 FROM Show s WHERE (s.movie.id = :movieId OR s.movie.tmdbId = :movieId OR LOWER(s.movie.title) = LOWER(:title)) AND s.status = 'SCHEDULED' AND s.showTime >= :startTime")
+    @Query("SELECT COUNT(s) > 0 FROM Show s JOIN s.movie m WHERE (m.id = :movieId OR m.tmdbId = :movieId OR LOWER(m.title) = LOWER(:title)) AND s.status = 'SCHEDULED' AND m.isActive = true AND (m.isUpcoming = false OR m.isUpcoming IS NULL) AND (m.releaseDate IS NULL OR m.releaseDate <= CURRENT_DATE) AND s.showTime >= :startTime")
     boolean hasActiveBookableShowsByMovieOrTitle(@Param("movieId") Long movieId, @Param("title") String title, @Param("startTime") LocalDateTime startTime);
 
-    @Query("SELECT DISTINCT s.movie.id FROM Show s WHERE s.status = 'SCHEDULED' AND s.showTime >= :startTime")
+    @Query("SELECT DISTINCT s.movie.id FROM Show s JOIN s.movie m WHERE s.status = 'SCHEDULED' AND m.isActive = true AND (m.isUpcoming = false OR m.isUpcoming IS NULL) AND s.showTime >= :startTime")
     List<Long> findMovieIdsWithActiveShows(@Param("startTime") LocalDateTime startTime);
 
     @Query("SELECT COUNT(s) > 0 FROM Show s WHERE s.screen.id = :screenId AND s.status = 'SCHEDULED' AND (:excludeShowId IS NULL OR s.id <> :excludeShowId) AND s.showTime = :showTime")
     boolean existsConflictingShow(@Param("screenId") Long screenId, @Param("showTime") LocalDateTime showTime, @Param("excludeShowId") Long excludeShowId);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.transaction.annotation.Transactional
+    @Query("DELETE FROM Show s WHERE s.movie.id IN (SELECT m.id FROM Movie m WHERE m.isUpcoming = true OR m.releaseDate > CURRENT_DATE)")
+    int deleteShowsForUpcomingMovies();
+
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.transaction.annotation.Transactional
+    @Query("DELETE FROM Show s WHERE s.movie.id IN (SELECT m.id FROM Movie m WHERE m.isActive = false OR m.isUpcoming = true OR m.releaseDate > CURRENT_DATE OR LOWER(m.title) LIKE '%bhool bhulaiyaa%')")
+    int deleteShowsForInvalidMovies();
 }

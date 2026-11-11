@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import api from '../services/api';
 import { handlePosterError, getFallbackPosterSvg } from '../utils/posterHelper';
 import CitySelectorModal from '../components/CitySelectorModal';
+import { normalizeIndianCity } from '../services/bmsLocationService';
 
 export default function MovieDetailPage({
   movie: propMovie,
@@ -19,9 +20,9 @@ export default function MovieDetailPage({
   const [loadingMovie, setLoadingMovie] = useState(!movie && Boolean(paramId));
   const [movieError, setMovieError] = useState('');
 
-  const [city, setCity] = useState(selectedCity || '');
+  const [city, setCity] = useState(() => normalizeIndianCity(selectedCity || ''));
   const [cityModalOpen, setCityModalOpen] = useState(false);
-  const [cities, setCities] = useState(['Mumbai', 'Bengaluru', 'Delhi NCR', 'Pune', 'Hyderabad']);
+  const [cities, setCities] = useState(['Mumbai', 'Bengaluru', 'Delhi NCR', 'Pune', 'Hyderabad', 'Indore']);
   const [nearbyTheatres, setNearbyTheatres] = useState([]);
   const [fallbackShows, setFallbackShows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -90,7 +91,7 @@ export default function MovieDetailPage({
   // Sync city if parent changes
   useEffect(() => {
     if (selectedCity) {
-      setCity(selectedCity);
+      setCity(normalizeIndianCity(selectedCity));
     }
   }, [selectedCity]);
 
@@ -167,13 +168,7 @@ export default function MovieDetailPage({
 
         const theatreList = nearbyRes.data?.data || [];
         setNearbyTheatres(theatreList);
-
-        if (theatreList.length === 0) {
-          const fallbackRes = await api.get(`/shows?movieId=${targetId}`);
-          setFallbackShows(fallbackRes.data?.data?.content || []);
-        } else {
-          setFallbackShows([]);
-        }
+        setFallbackShows([]);
       } catch (err) {
         setError(err.response?.data?.message || 'Failed to load shows');
       } finally {
@@ -568,60 +563,60 @@ export default function MovieDetailPage({
               ))}
             </div>
           ) : (
-            <div className="card" style={{ textAlign: 'center', padding: '40px 20px' }}>
-              <h3>No screenings found in {city} for {selectedDate}</h3>
-              <p style={{ color: '#94a3b8', margin: '12px 0 20px' }}>
-                Check out other cities or try another date (e.g. Tomorrow).
+            <div className="card" style={{ textAlign: 'center', padding: '40px 20px', borderRadius: '12px' }}>
+              <div style={{ fontSize: '38px', marginBottom: '12px' }}>🎭</div>
+              <h3 style={{ color: '#f8fafc', fontSize: '1.25rem', marginBottom: '8px' }}>
+                No verified showtimes available for this theatre/movie right now.
+              </h3>
+              <p style={{ color: '#94a3b8', margin: '8px 0 20px', fontSize: '14px' }}>
+                {city ? `No verified active screenings found in ${city} for ${selectedDate}.` : 'No active screenings found for the selected date.'}
+                {' '}You can try another date or switch city below.
               </p>
 
-              <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
-                {cities
-                  .filter((c) => c !== city)
-                  .map((otherCity) => (
-                    <button
-                      key={otherCity}
-                      className="btn btn-secondary"
-                      onClick={() => setCity(otherCity)}
-                    >
-                      Switch to {otherCity}
-                    </button>
-                  ))}
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '22px' }}>
+                <button
+                  className="btn"
+                  onClick={() => {
+                    const tomorrow = dateOptions[1]?.iso;
+                    if (tomorrow) setSelectedDate(tomorrow);
+                  }}
+                  style={{ padding: '9px 20px', fontSize: '13px', fontWeight: 700 }}
+                >
+                  📅 Check Tomorrow
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setCityModalOpen(true)}
+                  style={{ padding: '9px 20px', fontSize: '13px', fontWeight: 600 }}
+                >
+                  📍 Change City / Locality
+                </button>
               </div>
 
-              {fallbackShows.length > 0 && (
-                <div style={{ marginTop: '30px', textAlign: 'left' }}>
-                  <h4 style={{ marginBottom: '12px', color: '#38bdf8' }}>
-                    All scheduled shows across regions:
-                  </h4>
-                  <div className="shows-grid">
-                    {fallbackShows.map((show) => (
-                      <div
-                        key={show.id}
-                        className="show-slot"
-                        onClick={() =>
-                          handleShowSelection({
-                            ...show,
-                            movieTitle: movie.title,
-                            moviePoster: movie.posterUrl,
-                            movieCast: cast,
-                          })
-                        }
-                      >
-                        <div className="slot-time">
-                          {new Date(show.showTime).toLocaleTimeString('en-US', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </div>
-                        <div className="slot-movie">{show.theatreName}</div>
-                        <div className="slot-screen">
-                          {show.screenName} • ₹{show.basePrice}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '16px', maxWidth: '520px', margin: '0 auto' }}>
+                <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '0.5px' }}>
+                  Quick Metro Hubs:
                 </div>
-              )}
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                  {['Mumbai', 'Delhi NCR', 'Bengaluru', 'Pune', 'Hyderabad', 'Indore']
+                    .filter((c) => c.toLowerCase() !== (city || '').toLowerCase())
+                    .slice(0, 5)
+                    .map((otherCity) => (
+                      <button
+                        key={otherCity}
+                        className="pill"
+                        style={{ padding: '6px 14px', fontSize: '12px' }}
+                        onClick={() => {
+                          const clean = normalizeIndianCity(otherCity);
+                          setCity(clean);
+                          if (onCityChange) onCityChange(clean);
+                        }}
+                      >
+                        🏙️ {otherCity}
+                      </button>
+                    ))}
+                </div>
+              </div>
             </div>
           )}
         </>

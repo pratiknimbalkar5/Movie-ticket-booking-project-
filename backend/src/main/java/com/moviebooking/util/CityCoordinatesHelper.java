@@ -56,11 +56,112 @@ public final class CityCoordinatesHelper {
         CITY_COORDS.put("thane", new CityCoords(19.2183, 72.9781, "Thane"));
     }
 
-    public static CityCoords resolveCityCoords(String cityName) {
+    private static final Map<String, String> CITY_ALIASES = new HashMap<>();
+
+    static {
+        // Devanagari and regional alias mappings to canonical English catalog names
+        CITY_ALIASES.put("इन्दौर", "Indore");
+        CITY_ALIASES.put("इंदौर", "Indore");
+        CITY_ALIASES.put("इन्दौर ज़िला", "Indore");
+        CITY_ALIASES.put("इंदौर जिला", "Indore");
+        CITY_ALIASES.put("भोपाल", "Bhopal");
+        CITY_ALIASES.put("मुंबई", "Mumbai");
+        CITY_ALIASES.put("बम्बई", "Mumbai");
+        CITY_ALIASES.put("दिल्ली", "Delhi NCR");
+        CITY_ALIASES.put("नई दिल्ली", "Delhi NCR");
+        CITY_ALIASES.put("बेंगलुरु", "Bengaluru");
+        CITY_ALIASES.put("बैंगलोर", "Bengaluru");
+        CITY_ALIASES.put("पुणे", "Pune");
+        CITY_ALIASES.put("हैदराबाद", "Hyderabad");
+        CITY_ALIASES.put("चेन्नई", "Chennai");
+        CITY_ALIASES.put("मद्रास", "Chennai");
+        CITY_ALIASES.put("कोलकाता", "Kolkata");
+        CITY_ALIASES.put("कलकत्ता", "Kolkata");
+        CITY_ALIASES.put("जयपुर", "Jaipur");
+        CITY_ALIASES.put("अहमदाबाद", "Ahmedabad");
+        CITY_ALIASES.put("लखनऊ", "Lucknow");
+        CITY_ALIASES.put("चंडीगढ़", "Chandigarh");
+        CITY_ALIASES.put("कोच्चि", "Kochi");
+        CITY_ALIASES.put("सूरत", "Surat");
+        CITY_ALIASES.put("नागपुर", "Nagpur");
+        CITY_ALIASES.put("वाराणसी", "Varanasi");
+        CITY_ALIASES.put("आगरा", "Agra");
+        CITY_ALIASES.put("पटना", "Patna");
+        CITY_ALIASES.put("वडोदरा", "Vadodara");
+        CITY_ALIASES.put("देहरादून", "Dehradun");
+        CITY_ALIASES.put("गुवाहाटी", "Guwahati");
+        CITY_ALIASES.put("मैसूर", "Mysuru");
+        CITY_ALIASES.put("अमृतसर", "Amritsar");
+        CITY_ALIASES.put("जोधपुर", "Jodhpur");
+        CITY_ALIASES.put("कानपुर", "Kanpur");
+        CITY_ALIASES.put("नासिक", "Nashik");
+        CITY_ALIASES.put("ठाणे", "Thane");
+        // English district/suburb variants
+        CITY_ALIASES.put("indore district", "Indore");
+        CITY_ALIASES.put("indore zila", "Indore");
+        CITY_ALIASES.put("indore city", "Indore");
+        CITY_ALIASES.put("rau", "Indore");
+        CITY_ALIASES.put("mhow", "Indore");
+        CITY_ALIASES.put("pithampur", "Indore");
+        CITY_ALIASES.put("bhopal district", "Bhopal");
+        CITY_ALIASES.put("mumbai suburban", "Mumbai");
+        CITY_ALIASES.put("bombay", "Mumbai");
+        CITY_ALIASES.put("new delhi", "Delhi NCR");
+        CITY_ALIASES.put("bangalore", "Bengaluru");
+        CITY_ALIASES.put("bangalore urban", "Bengaluru");
+        CITY_ALIASES.put("bengaluru urban", "Bengaluru");
+        CITY_ALIASES.put("madras", "Chennai");
+        CITY_ALIASES.put("calcutta", "Kolkata");
+        CITY_ALIASES.put("baroda", "Vadodara");
+    }
+
+    public static String normalizeCityName(String cityName) {
         if (cityName == null || cityName.isBlank()) {
+            return null;
+        }
+        String trimmed = cityName.trim();
+        String lower = trimmed.toLowerCase();
+
+        // Check direct alias
+        if (CITY_ALIASES.containsKey(trimmed)) {
+            return CITY_ALIASES.get(trimmed);
+        }
+        if (CITY_ALIASES.containsKey(lower)) {
+            return CITY_ALIASES.get(lower);
+        }
+
+        // Substring / partial alias matching
+        for (Map.Entry<String, String> entry : CITY_ALIASES.entrySet()) {
+            if (trimmed.contains(entry.getKey()) || lower.contains(entry.getKey().toLowerCase())) {
+                return entry.getValue();
+            }
+        }
+
+        // Strip district / division / zila suffix
+        String stripped = trimmed
+                .replaceAll("(?i)\\s+(district|dist|zila|zilla|division|tahsil|tehsil|taluk|subdivision|urban|rural)$", "")
+                .replaceAll("(?i)\\s+(ज़िला|जिला|तहसील|मण्डल)$", "")
+                .trim();
+
+        if (CITY_COORDS.containsKey(stripped.toLowerCase())) {
+            return CITY_COORDS.get(stripped.toLowerCase()).canonicalCity();
+        }
+
+        for (CityCoords c : CITY_COORDS.values()) {
+            if (c.canonicalCity().equalsIgnoreCase(stripped) || stripped.toLowerCase().contains(c.canonicalCity().toLowerCase())) {
+                return c.canonicalCity();
+            }
+        }
+
+        return stripped;
+    }
+
+    public static CityCoords resolveCityCoords(String cityName) {
+        String normalized = normalizeCityName(cityName);
+        if (normalized == null || normalized.isBlank()) {
             return new CityCoords(19.0760, 72.8777, "Mumbai");
         }
-        String clean = cityName.trim().toLowerCase();
+        String clean = normalized.toLowerCase();
         if (CITY_COORDS.containsKey(clean)) {
             return CITY_COORDS.get(clean);
         }
@@ -69,7 +170,7 @@ public final class CityCoordinatesHelper {
                 return entry.getValue();
             }
         }
-        return new CityCoords(19.0760, 72.8777, cityName.trim());
+        return new CityCoords(19.0760, 72.8777, normalized);
     }
 
     public static double calculateHaversineKm(double lat1, double lon1, double lat2, double lon2) {

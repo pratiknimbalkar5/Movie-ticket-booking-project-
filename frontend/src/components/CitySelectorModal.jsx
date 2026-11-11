@@ -5,6 +5,7 @@ import {
   ALL_INDIAN_CITIES,
   detectCurrentLocation,
   locateByPincodeOrArea,
+  normalizeIndianCity,
 } from '../services/bmsLocationService';
 import { searchLocationSuggestions } from '../services/api';
 
@@ -84,7 +85,8 @@ export default function CitySelectorModal({
   };
 
   const handleSelectDynamicLocation = (loc) => {
-    const canonicalCity = loc.city || loc.name || searchQuery.trim();
+    const rawCity = loc.city || loc.name || searchQuery.trim();
+    const canonicalCity = normalizeIndianCity(rawCity, loc.latitude, loc.longitude);
     if (onLocationDetected) {
       onLocationDetected({
         latitude: loc.latitude,

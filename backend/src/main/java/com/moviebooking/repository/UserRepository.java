@@ -32,20 +32,15 @@ public interface UserRepository extends JpaRepository<User, Long> {
      */
     Optional<User> findByUsername(String username);
 
-    /**
-     * Find a user by their email.
-     * Used to check for duplicate emails during registration.
-     */
     Optional<User> findByEmail(String email);
 
-    /**
-     * Check if a username is already taken (for registration validation).
-     * More efficient than findByUsername() when we only need true/false.
-     */
+    Optional<User> findByUsernameIgnoreCaseOrEmailIgnoreCase(String username, String email);
+
     boolean existsByUsername(String username);
 
-    /**
-     * Check if an email is already registered.
-     */
     boolean existsByEmail(String email);
+
+    boolean existsByUsernameIgnoreCase(String username);
+
+    boolean existsByEmailIgnoreCase(String email);
 }

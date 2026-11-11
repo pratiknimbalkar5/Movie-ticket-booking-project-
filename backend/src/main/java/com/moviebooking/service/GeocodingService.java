@@ -66,11 +66,15 @@ public class GeocodingService {
                             continue;
                         }
 
-                        String name = node.path("name").asText("");
+                        String name = node.path("name").asText("").trim();
+                        // CRITICAL: Unnamed OpenStreetMap nodes must NEVER use display_name or road/street names as cinema names
                         if (name.isBlank()) {
-                            name = node.path("display_name").asText("").split(",")[0].trim();
+                            continue;
                         }
-                        if (name.isBlank()) continue;
+                        if (!GooglePlacesService.isLikelyCinemaName(name)) {
+                            log.debug("Skipping non-cinema place from OSM: '{}'", name);
+                            continue;
+                        }
 
                         double cLat = node.path("lat").asDouble();
                         double cLon = node.path("lon").asDouble();
@@ -252,7 +256,7 @@ public class GeocodingService {
 
         try {
             String url = String.format(Locale.US,
-                    "https://nominatim.openstreetmap.org/reverse?lat=%.6f&lon=%.6f&format=json&addressdetails=1",
+                    "https://nominatim.openstreetmap.org/reverse?lat=%.6f&lon=%.6f&format=json&addressdetails=1&accept-language=en",
                     lat, lon
             );
 
@@ -322,11 +326,15 @@ public class GeocodingService {
             name = !suburb.isBlank() ? suburb : (!city.isBlank() ? city : displayName.split(",")[0].trim());
         }
 
+        String rawCity = !city.isBlank() ? city : name;
+        String normalizedCity = com.moviebooking.util.CityCoordinatesHelper.normalizeCityName(rawCity);
+        String finalCity = (normalizedCity != null && !normalizedCity.isBlank()) ? normalizedCity : rawCity;
+
         return LocationSuggestionDto.builder()
                 .displayName(displayName)
                 .name(name)
                 .locality(!suburb.isBlank() ? suburb : name)
-                .city(!city.isBlank() ? city : name)
+                .city(finalCity)
                 .state(state)
                 .postcode(postcode)
                 .latitude(lat)

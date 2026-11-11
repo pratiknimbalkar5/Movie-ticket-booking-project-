@@ -218,15 +218,15 @@ public class DataInitializer {
                                 .isActive(true)
                                 .build(),
                         Movie.builder()
-                                .title("Bhool Bhulaiyaa 3")
-                                .tmdbId(1196470L)
-                                .description("Rooh Baba ventures into a haunted mansion in West Bengal, confronting two vengeful spirits claiming to be Manjulika.")
-                                .genre("Comedy / Horror")
-                                .durationMinutes(158)
-                                .language("Hindi")
-                                .releaseDate(LocalDate.now().minusDays(8))
-                                .posterUrl("https://image.tmdb.org/t/p/w500/3AfHD1HoaQpQwKH8kxRdBKVmzeU.jpg")
-                                .rating(7.1)
+                                .title("Ghost Soldier")
+                                .tmdbId(1562642L)
+                                .description("Henry 'Fitz' Fitzgerald, a former Special Forces soldier and advanced weapons developer living off the grid, wages a one-man war against a predatory corporation seizing his town's land.")
+                                .genre("Action / Thriller")
+                                .durationMinutes(90)
+                                .language("English / Hindi")
+                                .releaseDate(LocalDate.now())
+                                .posterUrl("https://image.tmdb.org/t/p/w500/8Y4oJ5iUs3hgPcDB3SIEmsNYjZk.jpg")
+                                .rating(7.8)
                                 .isUpcoming(false)
                                 .isActive(true)
                                 .build(),
@@ -322,14 +322,16 @@ public class DataInitializer {
                 for (Movie m : existingMovies) {
                     String title = m.getTitle() != null ? m.getTitle().trim() : "";
                     
-                    // 1. Fix "Reporting Live" mismatch -> "Bhool Bhulaiyaa 3" (TMDB 1196470)
-                    if ("Reporting Live".equalsIgnoreCase(title)) {
+                    // 1. Purge legacy "Reporting Live" or "Bhool Bhulaiyaa 3" (2024 movie: set authentic 2024 release date and deactivate)
+                    if ("Reporting Live".equalsIgnoreCase(title) || "Bhool Bhulaiyaa 3".equalsIgnoreCase(title) || (m.getTmdbId() != null && m.getTmdbId().equals(1196470L)) || ("Ghost Soldier".equalsIgnoreCase(title) && Long.valueOf(12L).equals(m.getId()))) {
                         m.setTitle("Bhool Bhulaiyaa 3");
                         m.setTmdbId(1196470L);
                         m.setGenre("Comedy / Horror");
                         m.setDescription("Rooh Baba ventures into a haunted mansion in West Bengal, confronting two vengeful spirits claiming to be Manjulika.");
                         m.setPosterUrl("https://image.tmdb.org/t/p/w500/3AfHD1HoaQpQwKH8kxRdBKVmzeU.jpg");
-                        m.setReleaseDate(LocalDate.now().minusDays(8));
+                        m.setReleaseDate(LocalDate.of(2024, 11, 1));
+                        m.setIsUpcoming(false);
+                        m.setIsActive(false); // 2024 movie: deactivated from 2026 theatrical runs
                         movieRepository.save(m);
                     }
                     // 2. Fix other synthetic titles from old initializer to genuine TMDB titles
@@ -391,8 +393,8 @@ public class DataInitializer {
                         m.setPosterUrl("https://image.tmdb.org/t/p/w500/67FsF2kpgEZ1T5Qos4adgqm9dLf.jpg");
                         movieRepository.save(m);
                     }
-                    // 3. Deactivate old movies (e.g. Finding Nemo 2003, Forrest Gump 1994, Judgment Night 1993)
-                    else if (m.getReleaseDate() != null && m.getReleaseDate().isBefore(LocalDate.of(2024, 1, 1))) {
+                    // 3. Deactivate old legacy movies (e.g. Finding Nemo 2003, Forrest Gump 1994, Bhool Bhulaiyaa 3 2024, or any pre-2025 movie)
+                    else if (m.getReleaseDate() != null && m.getReleaseDate().isBefore(LocalDate.of(2025, 1, 1))) {
                         m.setIsActive(false);
                         movieRepository.save(m);
                         log.info("Deactivated legacy movie record: {} (Release: {})", m.getTitle(), m.getReleaseDate());
@@ -710,6 +712,15 @@ public class DataInitializer {
 
                 seatRepository.saveAll(allSeats);
                 log.info("Seeded screens and seats across all theatres");
+            }
+
+            // 5.5 Clean up any erroneously scheduled shows for upcoming/unreleased or inactive/2024 movies
+            try {
+                showRepository.deleteShowsForUpcomingMovies();
+                int purged = showRepository.deleteShowsForInvalidMovies();
+                log.info("Purged {} erroneous/legacy shows for unreleased, inactive, or 2024 movies", purged);
+            } catch (Exception e) {
+                log.warn("Notice cleaning upcoming/invalid shows: {}", e.getMessage());
             }
 
             // 6. Seed Real-time Shows for Now-Showing Live Movies

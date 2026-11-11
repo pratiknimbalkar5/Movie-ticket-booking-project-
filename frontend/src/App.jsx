@@ -12,25 +12,32 @@ import MyBookingsPage from './pages/MyBookingsPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import NotFoundPage from './pages/NotFoundPage';
+import { normalizeIndianCity } from './services/bmsLocationService';
 
 export default function App() {
   const [selectedCity, setSelectedCity] = useState(() => {
-    // No default city — user must select or allow GPS
-    return localStorage.getItem('selected_city') || '';
+    const saved = localStorage.getItem('selected_city');
+    return saved ? normalizeIndianCity(saved) : '';
   });
   const [neighborhood, setNeighborhood] = useState('');
   const [userCoords, setUserCoords] = useState(null);
 
-  const handleLocationDetected = ({ latitude, longitude, neighborhood: n }) => {
+  const handleLocationDetected = ({ latitude, longitude, neighborhood: n, city }) => {
     setUserCoords({ latitude, longitude });
     if (n) setNeighborhood(n);
+    if (city) {
+      const clean = normalizeIndianCity(city, latitude, longitude);
+      setSelectedCity(clean);
+      localStorage.setItem('selected_city', clean);
+    }
   };
 
   const handleCitySelect = (city) => {
-    setSelectedCity(city);
+    const clean = normalizeIndianCity(city);
+    setSelectedCity(clean);
     setUserCoords(null); // Purge previous coordinates so old coordinates do not distort discovery
-    if (city) {
-      localStorage.setItem('selected_city', city);
+    if (clean) {
+      localStorage.setItem('selected_city', clean);
     } else {
       localStorage.removeItem('selected_city');
     }
@@ -138,6 +145,15 @@ export default function App() {
           {/* Dynamic Movie Detail with Showtimes */}
           <Route
             path="/movie/:id"
+            element={
+              <MovieDetailPage
+                selectedCity={selectedCity}
+                onCityChange={handleCitySelect}
+              />
+            }
+          />
+          <Route
+            path="/movies/:id"
             element={
               <MovieDetailPage
                 selectedCity={selectedCity}

@@ -34,7 +34,10 @@ public class CinemaController {
             @RequestParam(required = false) Long movieId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
 
-        String effectiveLocation = (query != null && !query.isBlank()) ? query.trim() : city;
+        String rawLocation = (query != null && !query.isBlank()) ? query.trim() : city;
+        String effectiveLocation = com.moviebooking.util.CityCoordinatesHelper.normalizeCityName(rawLocation);
+        if (effectiveLocation == null) effectiveLocation = rawLocation;
+
         CinemaSearchResponse response = googlePlacesService.discoverNearbyCinemas(
                 effectiveLocation, latitude, longitude, radiusKm, movieId, date
         );
@@ -46,7 +49,12 @@ public class CinemaController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> resolveCityCoordinates(
             @RequestParam String city) {
 
-        GooglePlacesService.Coordinates coords = googlePlacesService.resolveCityCoordinates(city);
+        String normalizedCity = com.moviebooking.util.CityCoordinatesHelper.normalizeCityName(city);
+        GooglePlacesService.Coordinates coords = googlePlacesService.resolveCityCoordinates(normalizedCity != null ? normalizedCity : city);
+        if (coords == null) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error("Unable to resolve geographical coordinates for: " + city));
+        }
         return ResponseEntity.ok(ApiResponse.success(Map.of(
                 "city", coords.canonicalCity(),
                 "latitude", coords.latitude(),

@@ -72,7 +72,7 @@ public class BookingController {
         String username = (auth != null && auth.isAuthenticated() && !"anonymousUser".equalsIgnoreCase(auth.getName()))
                 ? auth.getName()
                 : "john_doe";
-        return userRepository.findByUsername(username)
+        return userRepository.findByUsernameIgnoreCaseOrEmailIgnoreCase(username, username)
                 .orElseGet(() -> userRepository.findByUsername("john_doe")
                         .orElseGet(() -> userRepository.findAll().stream().findFirst()
                                 .orElseThrow(() -> new IllegalStateException("No user found in database"))));

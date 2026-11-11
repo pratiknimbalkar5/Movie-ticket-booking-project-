@@ -106,9 +106,9 @@ export function calculateDistanceKm(lat1, lon1, lat2, lon2) {
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
     Math.cos(lat1 * (Math.PI / 180)) *
-      Math.cos(lat2 * (Math.PI / 180)) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
+    Math.cos(lat2 * (Math.PI / 180)) *
+    Math.sin(dLon / 2) *
+    Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return Math.round(R * c * 10) / 10;
 }
@@ -126,6 +126,95 @@ export function findClosestCity(lat, lon) {
   }
 
   return { city: closest, distanceKm: minDistance };
+}
+
+export function normalizeIndianCity(rawName, lat = null, lon = null) {
+  if (!rawName) {
+    if (lat != null && lon != null) {
+      return findClosestCity(lat, lon).city;
+    }
+    return 'Mumbai';
+  }
+
+  const s = String(rawName).trim();
+  const lower = s.toLowerCase();
+
+  // Strip district / zila / division suffixes
+  const cleaned = s
+    .replace(/\s+(district|dist|zila|zilla|division|tahsil|tehsil|taluk|subdivision|urban|rural)$/i, '')
+    .replace(/\s+(ज़िला|जिला|तहसील|मण्डल)$/i, '')
+    .trim();
+
+  // Devanagari and common regional alias mappings to standard English catalog names
+  const ALIASES = {
+    'इन्दौर': 'Indore',
+    'इंदौर': 'Indore',
+    'भोपाल': 'Bhopal',
+    'मुंबई': 'Mumbai',
+    'बम्बई': 'Mumbai',
+    'दिल्ली': 'Delhi NCR',
+    'नई दिल्ली': 'Delhi NCR',
+    'बेंगलुरु': 'Bengaluru',
+    'बैंगलोर': 'Bengaluru',
+    'पुणे': 'Pune',
+    'हैदराबाद': 'Hyderabad',
+    'चेन्नई': 'Chennai',
+    'मद्रास': 'Chennai',
+    'कोलकाता': 'Kolkata',
+    'कलकत्ता': 'Kolkata',
+    'अहमदाबाद': 'Ahmedabad',
+    'जयपुर': 'Jaipur',
+    'लखनऊ': 'Lucknow',
+    'चंडीगढ़': 'Chandigarh',
+    'कोच्चि': 'Kochi',
+    'सूरत': 'Surat',
+    'नागपुर': 'Nagpur',
+    'वाराणसी': 'Varanasi',
+    'बनारस': 'Varanasi',
+    'काशी': 'Varanasi',
+    'आगरा': 'Agra',
+    'पटना': 'Patna',
+    'वडोदरा': 'Vadodara',
+    'बड़ौदा': 'Vadodara',
+    'देहरादून': 'Dehradun',
+    'विशाखापट्टनम': 'Visakhapatnam',
+    'मदुरै': 'Madurai',
+    'मैसूर': 'Mysuru',
+    'अमृतसर': 'Amritsar',
+    'गुवाहाटी': 'Guwahati',
+    'भुवनेश्वर': 'Bhubaneswar',
+    'रायपुर': 'Raipur',
+    'रांची': 'Ranchi',
+    'जोधपुर': 'Jodhpur',
+    'नासिक': 'Nashik',
+    'कानपुर': 'Kanpur',
+    'ठाणे': 'Thane',
+    'नवी मुंबई': 'Navi Mumbai',
+    'rau': 'Indore',
+    'mhow': 'Indore',
+    'pithampur': 'Indore',
+  };
+
+  for (const [alias, canonical] of Object.entries(ALIASES)) {
+    if (s.includes(alias) || lower.includes(alias.toLowerCase())) {
+      return canonical;
+    }
+  }
+
+  for (const c of ALL_INDIAN_CITIES) {
+    if (c.toLowerCase() === lower || cleaned.toLowerCase() === c.toLowerCase() || lower.includes(c.toLowerCase())) {
+      return c;
+    }
+  }
+
+  if (lat != null && lon != null) {
+    const closest = findClosestCity(lat, lon);
+    if (closest.distanceKm <= 40) {
+      return closest.city;
+    }
+  }
+
+  return cleaned || s;
 }
 
 export const LOCALITY_PRESETS = [
@@ -225,7 +314,7 @@ export async function detectCurrentLocation() {
           const locationData = await reverseGeocodeCoordinates(latitude, longitude);
           if (locationData) {
             neighborhood = locationData.locality || locationData.name || '';
-            detectedCity = locationData.city || '';
+            detectedCity = normalizeIndianCity(locationData.city || locationData.name, latitude, longitude);
             state = locationData.state || '';
             postcode = locationData.postcode || '';
           }
@@ -240,7 +329,7 @@ export async function detectCurrentLocation() {
             const timeoutId = setTimeout(() => controller.abort(), 4000);
 
             const res = await fetch(
-              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=14&addressdetails=1`,
+              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=14&addressdetails=1&accept-language=en`,
               { headers: { 'Accept': 'application/json' }, signal: controller.signal }
             );
             clearTimeout(timeoutId);
@@ -253,12 +342,7 @@ export async function detectCurrentLocation() {
               state = addr.state || state;
               postcode = addr.postcode || postcode;
 
-              if (rawCity) {
-                const matched = ALL_INDIAN_CITIES.find(
-                  (c) => c.toLowerCase() === rawCity.toLowerCase() || rawCity.toLowerCase().includes(c.toLowerCase())
-                );
-                detectedCity = matched || rawCity;
-              }
+              detectedCity = normalizeIndianCity(rawCity || neighborhood, latitude, longitude);
             }
           } catch (err) {
             // Geometric distance fallback
@@ -270,6 +354,8 @@ export async function detectCurrentLocation() {
           const match = findClosestCity(latitude, longitude);
           detectedCity = match.city;
         }
+
+        detectedCity = normalizeIndianCity(detectedCity, latitude, longitude);
 
         resolve({
           success: true,

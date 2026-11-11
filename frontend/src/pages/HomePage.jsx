@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
 import { handlePosterError, getFallbackPosterSvg } from '../utils/posterHelper';
@@ -13,12 +13,28 @@ export default function HomePage({
 }) {
   const navigate = useNavigate();
   const [heroSearchQuery, setHeroSearchQuery] = useState('');
+  const [suggestions, setSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const searchDebounceRef = useRef(null);
+  const searchContainerRef = useRef(null);
 
   // Exactly TWO sections: Section A (Now Showing) and Section B (Coming Soon)
   const [nowShowing, setNowShowing] = useState([]);
   const [comingSoon, setComingSoon] = useState([]);
   const [loadingNowShowing, setLoadingNowShowing] = useState(true);
   const [loadingComingSoon, setLoadingComingSoon] = useState(true);
+
+  // Close suggestions on outside click
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
 
   useEffect(() => {
     // Section A: Now Showing in Theatres (movies with verified current theatrical screening in India)
@@ -50,8 +66,56 @@ export default function HomePage({
       .finally(() => setLoadingComingSoon(false));
   }, []);
 
+  const handleHeroSearchChange = (e) => {
+    const val = e.target.value;
+    setHeroSearchQuery(val);
+
+    const q = val.trim().toLowerCase();
+    if (!q) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+      return;
+    }
+
+    // 1. Instant 0ms partial keystroke matching against loaded movies
+    const instantMatches = [...nowShowing, ...comingSoon].filter((m) => {
+      const title = (m.title || '').toLowerCase();
+      const genre = (m.genre || '').toLowerCase();
+      return title.includes(q) || genre.includes(q);
+    });
+    setSuggestions(instantMatches.slice(0, 6));
+    setShowSuggestions(true);
+
+    // 2. Debounced API search for full catalog
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    setLoadingSuggestions(true);
+    searchDebounceRef.current = setTimeout(async () => {
+      try {
+        const res = await api.get(`/movies/search?query=${encodeURIComponent(val.trim())}&page=1`);
+        const results = res.data?.data?.results || res.data?.data || [];
+        // Deduplicate
+        const seen = new Set();
+        const merged = [];
+        for (const item of [...instantMatches, ...results]) {
+          const key = item.tmdbId || item.id || item.title;
+          if (!seen.has(key)) {
+            seen.add(key);
+            merged.push(item);
+          }
+        }
+        setSuggestions(merged.slice(0, 7));
+      } catch (err) {
+        // keep instant matches if API fails
+      } finally {
+        setLoadingSuggestions(false);
+      }
+    }, 250);
+  };
+
   const handleHeroSearchSubmit = (e) => {
     e.preventDefault();
+    setShowSuggestions(false);
     if (heroSearchQuery.trim()) {
       navigate(`/search?q=${encodeURIComponent(heroSearchQuery.trim())}`);
     } else {
@@ -64,6 +128,12 @@ export default function HomePage({
     // Always navigate using the stable TMDB / Movie ID
     const targetId = movie.tmdbId || movie.id || movie.localMovieId;
     navigate(`/movie/${targetId}`, { state: { movie } });
+  };
+
+  const handleSelectSuggestion = (movie) => {
+    setShowSuggestions(false);
+    setHeroSearchQuery('');
+    handleMovieClick(movie);
   };
 
   return (
@@ -120,43 +190,174 @@ export default function HomePage({
             Discover current theatrical blockbusters in Indian cinemas and explore upcoming premieres with verified release dates.
           </p>
 
-          {/* Hero Quick Search Bar */}
-          <form
-            onSubmit={handleHeroSearchSubmit}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              background: '#090d16',
-              border: '2px solid rgba(56, 189, 248, 0.35)',
-              borderRadius: 12,
-              padding: '6px 10px 6px 18px',
-              maxWidth: 580,
-              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.5)',
-            }}
-          >
-            <span style={{ fontSize: '18px', marginRight: 10, color: '#38bdf8' }}>🔍</span>
-            <input
-              type="text"
-              placeholder="Search movies by title, actor, or genre..."
-              value={heroSearchQuery}
-              onChange={(e) => setHeroSearchQuery(e.target.value)}
+          {/* Hero Quick Search Bar with Instant Keystroke Suggestions */}
+          <div ref={searchContainerRef} style={{ position: 'relative', maxWidth: 580, zIndex: 10 }}>
+            <form
+              onSubmit={handleHeroSearchSubmit}
               style={{
-                flex: 1,
-                background: 'transparent',
-                border: 'none',
-                color: '#fff',
-                fontSize: '15px',
-                outline: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                background: '#090d16',
+                border: '2px solid rgba(56, 189, 248, 0.35)',
+                borderRadius: 12,
+                padding: '6px 10px 6px 18px',
+                boxShadow: '0 8px 24px rgba(0, 0, 0, 0.5)',
               }}
-            />
-            <button
-              type="submit"
-              className="btn"
-              style={{ padding: '10px 22px', fontSize: '14px', fontWeight: 700 }}
             >
-              Search
-            </button>
-          </form>
+              <span style={{ fontSize: '18px', marginRight: 10, color: '#38bdf8' }}>🔍</span>
+              <input
+                type="text"
+                placeholder="Search movies by title, actor, or genre..."
+                value={heroSearchQuery}
+                onChange={handleHeroSearchChange}
+                onFocus={() => {
+                  if (heroSearchQuery.trim().length > 0 && suggestions.length > 0) {
+                    setShowSuggestions(true);
+                  }
+                }}
+                style={{
+                  flex: 1,
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#fff',
+                  fontSize: '15px',
+                  outline: 'none',
+                }}
+              />
+              {heroSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHeroSearchQuery('');
+                    setSuggestions([]);
+                    setShowSuggestions(false);
+                  }}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#94a3b8',
+                    cursor: 'pointer',
+                    fontSize: '16px',
+                    padding: '0 8px',
+                  }}
+                  title="Clear search"
+                >
+                  ✕
+                </button>
+              )}
+              <button
+                type="submit"
+                className="btn"
+                style={{ padding: '10px 22px', fontSize: '14px', fontWeight: 700 }}
+              >
+                Search
+              </button>
+            </form>
+
+            {/* Instant Keystroke Dropdown Suggestions */}
+            {showSuggestions && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 8px)',
+                  left: 0,
+                  right: 0,
+                  background: '#0f172a',
+                  borderRadius: 12,
+                  border: '1px solid rgba(56, 189, 248, 0.3)',
+                  boxShadow: '0 20px 45px rgba(0, 0, 0, 0.8)',
+                  zIndex: 100,
+                  overflow: 'hidden',
+                  maxHeight: 380,
+                  overflowY: 'auto',
+                }}
+              >
+                {loadingSuggestions && suggestions.length === 0 ? (
+                  <div style={{ padding: '16px 20px', color: '#94a3b8', fontSize: '13px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ animation: 'spin 1.5s linear infinite' }}>🍿</span> Searching catalog...
+                  </div>
+                ) : suggestions.length === 0 ? (
+                  <div style={{ padding: '16px 20px', color: '#94a3b8', fontSize: '13px' }}>
+                    No movies matching "{heroSearchQuery}". Press Enter to browse full catalog.
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ padding: '8px 16px', fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Matching Titles</span>
+                      <span>{suggestions.length} results</span>
+                    </div>
+                    {suggestions.map((m) => (
+                      <div
+                        key={m.id || m.tmdbId}
+                        onClick={() => handleSelectSuggestion(m)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 12,
+                          padding: '10px 16px',
+                          cursor: 'pointer',
+                          borderBottom: '1px solid rgba(255,255,255,0.04)',
+                          transition: 'background 0.15s ease',
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(56, 189, 248, 0.12)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                      >
+                        <img
+                          src={m.posterUrl || getFallbackPosterSvg(m.title, m.genre)}
+                          alt={m.title}
+                          style={{ width: 36, height: 50, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }}
+                          onError={(e) => handlePosterError(e, m.title, m.genre)}
+                        />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: '14px', fontWeight: 700, color: '#f8fafc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {m.title}
+                          </div>
+                          <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span>{m.releaseDate ? m.releaseDate.substring(0, 4) : '2026'}</span>
+                            <span>•</span>
+                            <span>{m.genre || 'Action / Drama'}</span>
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                          {m.isUpcoming ? (
+                            <span style={{ fontSize: '11px', color: '#38bdf8', background: 'rgba(56, 189, 248, 0.12)', padding: '2px 8px', borderRadius: 10, fontWeight: 600 }}>
+                              🗓️ Upcoming
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: '11px', color: '#4ade80', background: 'rgba(74, 222, 128, 0.12)', padding: '2px 8px', borderRadius: 10, fontWeight: 600 }}>
+                              🟢 In Theatres
+                            </span>
+                          )}
+                          {m.rating ? (
+                            <div style={{ fontSize: '11px', color: '#fbbf24', marginTop: 3 }}>⭐ {m.rating.toFixed(1)}</div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                    <div
+                      onClick={() => {
+                        setShowSuggestions(false);
+                        navigate(`/search?q=${encodeURIComponent(heroSearchQuery.trim())}`);
+                      }}
+                      style={{
+                        padding: '10px 16px',
+                        textAlign: 'center',
+                        fontSize: '12px',
+                        color: '#38bdf8',
+                        background: 'rgba(255,255,255,0.02)',
+                        cursor: 'pointer',
+                        fontWeight: 600,
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(56, 189, 248, 0.08)')}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.02)')}
+                    >
+                      See all matching results for "{heroSearchQuery}" ➔
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Quick Shortcuts */}
           <div style={{ display: 'flex', gap: 12, marginTop: 18, flexWrap: 'wrap' }}>

@@ -28,16 +28,25 @@ public class AuthService {
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
-        if (userRepository.existsByUsername(request.getUsername())) {
+        String cleanUsername = (request.getUsername() != null) ? request.getUsername().trim() : "";
+        String cleanEmail = (request.getEmail() != null) ? request.getEmail().trim().toLowerCase() : "";
+
+        if (cleanUsername.isBlank()) {
+            throw new IllegalArgumentException("Username cannot be blank");
+        }
+        if (cleanEmail.isBlank()) {
+            throw new IllegalArgumentException("Email cannot be blank");
+        }
+        if (userRepository.existsByUsernameIgnoreCase(cleanUsername)) {
             throw new IllegalArgumentException("Username is already taken");
         }
-        if (userRepository.existsByEmail(request.getEmail())) {
+        if (userRepository.existsByEmailIgnoreCase(cleanEmail)) {
             throw new IllegalArgumentException("Email is already registered");
         }
 
         User user = User.builder()
-                .username(request.getUsername())
-                .email(request.getEmail())
+                .username(cleanUsername)
+                .email(cleanEmail)
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                 .role(User.Role.USER)
                 .build();
@@ -57,12 +66,17 @@ public class AuthService {
     }
 
     public AuthResponse login(LoginRequest request) {
-        authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
-        );
+        String rawIdentifier = (request.getUsername() != null) ? request.getUsername().trim() : "";
+        if (rawIdentifier.isBlank()) {
+            throw new IllegalArgumentException("Username or email cannot be blank");
+        }
 
-        User user = userRepository.findByUsername(request.getUsername())
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+        User user = userRepository.findByUsernameIgnoreCaseOrEmailIgnoreCase(rawIdentifier, rawIdentifier)
+                .orElseThrow(() -> new ResourceNotFoundException("Invalid credentials or user not found"));
+
+        authenticationManager.authenticate(
+                new UsernamePasswordAuthenticationToken(user.getUsername(), request.getPassword())
+        );
 
         UserDetails userDetails = userDetailsService.loadUserByUsername(user.getUsername());
         String token = jwtUtil.generateToken(userDetails, user.getId(), user.getRole().name());

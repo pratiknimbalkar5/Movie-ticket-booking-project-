@@ -153,11 +153,13 @@ public class InternationalShowtimesService {
         Map<String, Object> status = new LinkedHashMap<>();
         status.put("provider", "International Showtimes API V5");
         status.put("configured", isConfigured());
+        status.put("paidServiceDisabled", !isConfigured());
+        status.put("policyNotice", "Operating under Strict Free API Policy. Paid external subscriptions are permanently decoupled from active runtime.");
 
         if (!isConfigured()) {
             this.lastAuthSuccessful = false;
             this.indiaTerritorySupported = false;
-            this.lastStatusMessage = "INTERNATIONAL_SHOWTIMES_API_KEY is not set. Please set the environment variable to enable live V5 showtime integration.";
+            this.lastStatusMessage = "INTERNATIONAL_SHOWTIMES_API_KEY is not set. Deactivated under Strict Free API Policy (commercial service requires €150/mo paid plan). Live multiplex showtimes served via internal directory schedule.";
             status.put("authenticated", false);
             status.put("indiaSupported", false);
             status.put("message", this.lastStatusMessage);

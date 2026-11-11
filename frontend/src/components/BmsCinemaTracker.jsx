@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api, { searchLocationSuggestions, fetchNearbyCinemas } from '../services/api';
-import { detectCurrentLocation, calculateDistanceKm } from '../services/bmsLocationService';
+import { detectCurrentLocation, calculateDistanceKm, normalizeIndianCity } from '../services/bmsLocationService';
 import { handlePosterError, getFallbackPosterSvg } from '../utils/posterHelper';
 
 const SUGGESTED_CITIES = [
@@ -16,6 +17,19 @@ export default function BmsCinemaTracker({
   userLocation = null,
   onLocationDetected,
 }) {
+  const navigate = useNavigate();
+
+  const handleShowClick = (showObj) => {
+    if (onSelectShow) {
+      onSelectShow(showObj);
+    } else {
+      const showId = showObj.id || showObj.showId;
+      if (showId) {
+        navigate(`/seat-selection/${showId}`);
+      }
+    }
+  };
+
   const [searchInput, setSearchInput] = useState(selectedCity || '');
   const [activeLocation, setActiveLocation] = useState(() => {
     if (userLocation?.latitude && userLocation?.longitude) {
@@ -251,22 +265,23 @@ export default function BmsCinemaTracker({
     const clean = searchInput.trim();
     if (!clean) return;
 
+    const normalized = normalizeIndianCity(clean);
     setShowDropdown(false);
     const newLoc = {
-      name: clean,
-      city: clean,
+      name: normalized,
+      city: normalized,
       latitude: null,
       longitude: null,
     };
     setActiveLocation(newLoc);
-    if (onCityChange) onCityChange(clean);
+    if (onCityChange) onCityChange(normalized);
     if (onLocationDetected) onLocationDetected(null);
   };
 
   // Selection from dynamic suggestions (any Indian address, PIN, landmark)
   const handleSelectRemoteSuggestion = (item) => {
     const locName = item.name || item.locality || item.city || item.displayName;
-    const city = item.city || locName;
+    const city = normalizeIndianCity(item.city || locName, item.latitude, item.longitude);
     setSearchInput(locName);
     setShowDropdown(false);
 
@@ -296,11 +311,12 @@ export default function BmsCinemaTracker({
 
   // Selection from preset quick cities
   const handleSelectCityPreset = (city) => {
-    setSearchInput(city);
+    const cleanCity = normalizeIndianCity(city);
+    setSearchInput(cleanCity);
     setShowDropdown(false);
-    const newLoc = { name: city, city: city, latitude: null, longitude: null };
+    const newLoc = { name: cleanCity, city: cleanCity, latitude: null, longitude: null };
     setActiveLocation(newLoc);
-    if (onCityChange) onCityChange(city);
+    if (onCityChange) onCityChange(cleanCity);
     if (onLocationDetected) onLocationDetected(null);
   };
 
@@ -1109,7 +1125,7 @@ export default function BmsCinemaTracker({
                             key={showId}
                             className="bms-showtime-btn"
                             onClick={() =>
-                              onSelectShow({
+                              handleShowClick({
                                 ...show,
                                 id: showId,
                                 theatreName: theatre.theatreName,

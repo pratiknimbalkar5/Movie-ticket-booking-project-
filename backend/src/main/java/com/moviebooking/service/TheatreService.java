@@ -49,7 +49,6 @@ public class TheatreService {
         if (city == null || city.isBlank()) {
             return getAllActiveTheatres();
         }
-        ensureCityTheatres(city.trim());
         List<Theatre> theatres = theatreRepository.searchByCityLikeIgnoreCase(city.trim());
         if (theatres.isEmpty()) {
             theatres = theatreRepository.findByCityIgnoreCaseAndIsActiveTrue(city.trim());
@@ -63,84 +62,7 @@ public class TheatreService {
     public List<Theatre> ensureCityTheatres(String city) {
         if (city == null || city.isBlank()) return Collections.emptyList();
         String normalizedCity = city.trim();
-        List<Theatre> existing = theatreRepository.searchByCityLikeIgnoreCase(normalizedCity);
-        if (!existing.isEmpty()) {
-            return existing;
-        }
-
-        log.info("Provisioning premier residential cinema theatres and shows for city: {}", normalizedCity);
-
-        var coords = com.moviebooking.util.CityCoordinatesHelper.resolveCityCoords(normalizedCity);
-        double centerLat = coords.latitude();
-        double centerLon = coords.longitude();
-
-        // Dynamically provision 3 premier residential cinemas with accurate proximity to city center
-        List<Theatre> newTheatres = List.of(
-                Theatre.builder()
-                        .name("PVR INOX " + normalizedCity + " Central Mall")
-                        .city(normalizedCity)
-                        .address("Level 4, City Centre Mall, Commercial & Residential Hub, " + normalizedCity)
-                        .latitude(Math.round((centerLat + 0.018) * 10000.0) / 10000.0)
-                        .longitude(Math.round((centerLon + 0.012) * 10000.0) / 10000.0)
-                        .isActive(true)
-                        .build(),
-                Theatre.builder()
-                        .name("Cinepolis " + normalizedCity + " MegaPlex")
-                        .city(normalizedCity)
-                        .address("Main Ring Road, High Street Residential Zone, " + normalizedCity)
-                        .latitude(Math.round((centerLat - 0.025) * 10000.0) / 10000.0)
-                        .longitude(Math.round((centerLon + 0.022) * 10000.0) / 10000.0)
-                        .isActive(true)
-                        .build(),
-                Theatre.builder()
-                        .name("Miraj Cinemas " + normalizedCity + " Resident View")
-                        .city(normalizedCity)
-                        .address("Civil Lines Cinema Corridor, " + normalizedCity)
-                        .latitude(Math.round((centerLat + 0.010) * 10000.0) / 10000.0)
-                        .longitude(Math.round((centerLon - 0.035) * 10000.0) / 10000.0)
-                        .isActive(true)
-                        .build()
-        );
-
-        List<Theatre> savedTheatres = theatreRepository.saveAll(newTheatres);
-
-        List<Screen> screens = new ArrayList<>();
-        for (Theatre t : savedTheatres) {
-            screens.add(Screen.builder().name("Audi 1 (IMAX Laser)").theatre(t).totalSeats(25).build());
-            screens.add(Screen.builder().name("Audi 2 (Dolby Atmos)").theatre(t).totalSeats(25).build());
-        }
-        List<Screen> savedScreens = screenRepository.saveAll(screens);
-
-        // Generate 25 seats for each screen
-        List<Seat> allSeats = new ArrayList<>();
-        String[] rows = {"A", "B", "C", "D", "E"};
-        for (Screen screen : savedScreens) {
-            for (int r = 0; r < rows.length; r++) {
-                String rowLetter = rows[r];
-                Seat.SeatType type = (r < 2) ? Seat.SeatType.REGULAR : (r < 4) ? Seat.SeatType.PREMIUM : Seat.SeatType.VIP;
-                for (int num = 1; num <= 5; num++) {
-                    allSeats.add(Seat.builder()
-                            .seatNumber(rowLetter + num)
-                            .seatType(type)
-                            .screen(screen)
-                            .build());
-                }
-            }
-        }
-        seatRepository.saveAll(allSeats);
-
-        // Schedule live shows for now-showing movies
-        List<Movie> liveMovies = movieRepository.findByIsActiveTrueAndIsUpcomingFalseOrderByRatingDesc();
-        if (liveMovies.isEmpty()) {
-            liveMovies = movieRepository.findByIsActiveTrueOrderByRatingDesc();
-        }
-
-        if (!liveMovies.isEmpty()) {
-            List<Show> shows = com.moviebooking.util.ShowPricingAndScheduleHelper.generateShows(savedScreens, liveMovies, 4);
-            showRepository.saveAll(shows);
-        }
-
-        return savedTheatres;
+        return theatreRepository.searchByCityLikeIgnoreCase(normalizedCity);
     }
 
     @Transactional(readOnly = true)

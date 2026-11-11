@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { handlePosterError, getFallbackPosterSvg } from '../utils/posterHelper';
 import BmsCinemaTracker from '../components/BmsCinemaTracker';
@@ -12,6 +13,28 @@ export default function MoviesPage({
   userCoords: propCoords = null,
   onLocationDetected,
 }) {
+  const navigate = useNavigate();
+
+  const handleMovieClick = (movie) => {
+    if (onSelectMovie) {
+      onSelectMovie(movie);
+    } else {
+      const movieId = movie.tmdbId || movie.id;
+      navigate(`/movie/${movieId}`, { state: { movie } });
+    }
+  };
+
+  const handleShowClick = (show) => {
+    if (onSelectShow) {
+      onSelectShow(show);
+    } else {
+      const showId = show.id || show.showId;
+      if (showId) {
+        navigate(`/seat-selection/${showId}`);
+      }
+    }
+  };
+
   // Primary mode: 'cinemas' (City Shows) | 'now-playing' | 'upcoming' | 'popular' | 'trending'
   const [activeTab, setActiveTab] = useState(
     initialTab === 'now-playing' ? 'now-playing'
@@ -283,7 +306,7 @@ export default function MoviesPage({
         <BmsCinemaTracker
           selectedCity={selectedCity}
           onCityChange={onCityChange}
-          onSelectShow={onSelectShow}
+          onSelectShow={handleShowClick}
           userLocation={userCoords}
           onLocationDetected={(data) => {
             setUserCoords(data);
@@ -381,7 +404,7 @@ export default function MoviesPage({
               <div className="movies-grid">
                 {filteredMovies.map((m) => (
                   <div key={m.id} className="movie-card">
-                    <div className="poster-wrapper" onClick={() => onSelectMovie(m)} style={{ cursor: 'pointer' }}>
+                    <div className="poster-wrapper" onClick={() => handleMovieClick(m)} style={{ cursor: 'pointer' }}>
                       <img
                         src={m.posterUrl || getFallbackPosterSvg(m.title, m.genre)}
                         alt={m.title}
@@ -408,7 +431,7 @@ export default function MoviesPage({
                       <h3
                         className="movie-title"
                         title={m.title}
-                        onClick={() => onSelectMovie(m)}
+                        onClick={() => handleMovieClick(m)}
                         style={{ cursor: 'pointer' }}
                       >
                         {m.title}
@@ -467,7 +490,7 @@ export default function MoviesPage({
                         ) : (
                           <button
                             className="btn btn-block"
-                            onClick={() => onSelectMovie(m)}
+                            onClick={() => handleMovieClick(m)}
                           >
                             🎟️ View Shows {selectedCity ? `(${selectedCity})` : ''}
                           </button>

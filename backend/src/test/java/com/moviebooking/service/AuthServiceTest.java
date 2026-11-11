@@ -70,8 +70,8 @@ class AuthServiceTest {
                 .password("password123")
                 .build();
 
-        when(userRepository.existsByUsername("testuser")).thenReturn(false);
-        when(userRepository.existsByEmail("test@example.com")).thenReturn(false);
+        when(userRepository.existsByUsernameIgnoreCase("testuser")).thenReturn(false);
+        when(userRepository.existsByEmailIgnoreCase("test@example.com")).thenReturn(false);
         when(passwordEncoder.encode("password123")).thenReturn("encodedPassword");
         when(userRepository.save(any(User.class))).thenReturn(testUser);
         when(userDetailsService.loadUserByUsername("testuser")).thenReturn(userDetails);
@@ -95,7 +95,7 @@ class AuthServiceTest {
                 .password("password123")
                 .build();
 
-        when(userRepository.existsByUsername("testuser")).thenReturn(true);
+        when(userRepository.existsByUsernameIgnoreCase("testuser")).thenReturn(true);
 
         assertThrows(IllegalArgumentException.class, () -> authService.register(request));
         verify(userRepository, never()).save(any(User.class));
@@ -109,9 +109,10 @@ class AuthServiceTest {
                 .password("password123")
                 .build();
 
+        when(userRepository.findByUsernameIgnoreCaseOrEmailIgnoreCase("testuser", "testuser"))
+                .thenReturn(Optional.of(testUser));
         when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
                 .thenReturn(new UsernamePasswordAuthenticationToken("testuser", "password123"));
-        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
         when(userDetailsService.loadUserByUsername("testuser")).thenReturn(userDetails);
         when(jwtUtil.generateToken(userDetails, 1L, "USER")).thenReturn("mock-jwt-token");
 

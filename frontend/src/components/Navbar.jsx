@@ -2,7 +2,7 @@ import React, { useContext, useState } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import CitySelectorModal from './CitySelectorModal';
-import { detectCurrentLocation } from '../services/bmsLocationService';
+import { detectCurrentLocation, normalizeIndianCity } from '../services/bmsLocationService';
 
 export default function Navbar({
   selectedCity,
@@ -130,7 +130,7 @@ export default function Navbar({
               }}
             >
               {neighborhood ? `${neighborhood}, ` : ''}
-              {selectedCity || 'Select City'}
+              {normalizeIndianCity(selectedCity) || 'Select City'}
             </span>
             <span style={{ fontSize: '11px', color: '#94a3b8' }}>▾</span>
           </button>

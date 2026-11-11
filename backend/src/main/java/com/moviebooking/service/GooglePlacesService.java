@@ -231,7 +231,11 @@ public class GooglePlacesService {
         if (cityName == null || cityName.isBlank()) {
             return CITY_COORDINATES.get("mumbai");
         }
-        String normalized = cityName.trim().toLowerCase();
+        String canonicalCity = com.moviebooking.util.CityCoordinatesHelper.normalizeCityName(cityName);
+        if (canonicalCity != null && CITY_COORDINATES.containsKey(canonicalCity.toLowerCase())) {
+            return CITY_COORDINATES.get(canonicalCity.toLowerCase());
+        }
+        String normalized = (canonicalCity != null ? canonicalCity : cityName).trim().toLowerCase();
 
         // 1. Dynamic Geocoding via GeocodingService (supports ANY city, area, PIN, landmark across India)
         if (geocodingService != null) {
@@ -267,8 +271,8 @@ public class GooglePlacesService {
             }
         }
 
-        // Default to Mumbai if unknown
-        return new Coordinates(19.0760, 72.8777, cityName.trim());
+        // If location cannot be resolved, return null so callers know the location is unverified
+        return null;
     }
 
     public String findClosestCityName(double lat, double lon) {
@@ -312,6 +316,20 @@ public class GooglePlacesService {
             }
         } else if (city != null && !city.isBlank()) {
             Coordinates coords = resolveCityCoordinates(city.trim());
+            if (coords == null) {
+                return CinemaSearchResponse.builder()
+                        .searchCity(city.trim())
+                        .searchLatitude(0.0)
+                        .searchLongitude(0.0)
+                        .searchRadiusKm(radiusKm != null ? radiusKm : defaultRadiusKm)
+                        .provider("LOCAL_DATABASE")
+                        .providerConfigured(false)
+                        .openCinemaConfigured(false)
+                        .googlePlacesConfigured(false)
+                        .providerStatusMessage("No verified Indian location or theatres found for '" + city.trim() + "'. Please check the spelling or search another city/area.")
+                        .cinemas(Collections.emptyList())
+                        .build();
+            }
             effectiveLat = coords.latitude();
             effectiveLon = coords.longitude();
             effectiveCity = coords.canonicalCity();
@@ -332,11 +350,6 @@ public class GooglePlacesService {
 
         double searchRadius = (radiusKm != null && radiusKm > 0) ? radiusKm : defaultRadiusKm;
         LocalDate targetDate = (date != null) ? date : LocalDate.now();
-
-        // Ensure city has registered theatres provisioned in our database if requested
-        if (effectiveCity != null && !effectiveCity.isBlank()) {
-            theatreService.ensureCityTheatres(effectiveCity);
-        }
 
         List<CinemaDiscoveryDto> discoveredList = new ArrayList<>();
         boolean googleApiActive = isConfigured();
@@ -398,7 +411,7 @@ public class GooglePlacesService {
         try {
             List<CinemaDiscoveryDto> osmCinemas = fetchFromOpenStreetMap(effectiveCity, effectiveLat, effectiveLon, searchRadius);
             for (CinemaDiscoveryDto oc : osmCinemas) {
-                if (discoveredList.stream().noneMatch(existing -> isSameCinema(existing, oc))) {
+                if (isLikelyCinemaName(oc.getName()) && discoveredList.stream().noneMatch(existing -> isSameCinema(existing, oc))) {
                     discoveredList.add(oc);
                 }
             }
@@ -408,6 +421,11 @@ public class GooglePlacesService {
         } catch (Exception e) {
             log.warn("OpenStreetMap cinema directory lookup notice: {}", e.getMessage());
         }
+
+        // Filter all externally discovered listings to guarantee only genuine cinemas/theatres (never roads or streets)
+        discoveredList = discoveredList.stream()
+                .filter(c -> isLikelyCinemaName(c.getName()))
+                .collect(Collectors.toCollection(ArrayList::new));
 
         if (!openCinemaActive && !googleApiActive) {
             statusBuilder.append("Showing dynamic OpenStreetMap verified cinemas and partner multiplexes registered in our booking database.");
@@ -757,6 +775,76 @@ public class GooglePlacesService {
             map.computeIfAbsent(theatreId, k -> new ArrayList<>()).add(item);
         }
         return map;
+    }
+
+    /**
+     * Strictly verifies whether a location name is a legitimate cinema/theatre entity.
+     * Rejects streets, roads, highways, colonies, administrative wards, or unnamed areas.
+     */
+    public static boolean isLikelyCinemaName(String name) {
+        if (name == null || name.isBlank()) return false;
+        String clean = name.trim();
+        if (clean.length() < 3) return false;
+        String lower = clean.toLowerCase();
+
+        // 1. Explicitly reject street, road, highway, colony, area or administrative place names
+        // e.g. "Old A. B. Road", "M. G. Road", "Ring Road", "Bypass", "Indore Road"
+        if (lower.matches("^(old|new|inner|outer)?\\s*[a-z0-9\\.\\-\\s]+(road|rd|street|st|lane|marg|path|highway|expressway|circle|chowk|bypass|tahsil|tehsil|district|zila|zilla|colony|sector|nagar|ward)\\s*$")) {
+            return false;
+        }
+
+        // 2. Check known Indian & international cinema multiplex chains & iconic theatres
+        if (lower.contains("pvr") ||
+            lower.contains("inox") ||
+            lower.contains("cinepolis") || lower.contains("cinépolis") ||
+            lower.contains("carnival") ||
+            lower.contains("miraj") ||
+            lower.contains("wave") ||
+            lower.contains("moviemax") ||
+            lower.contains("fundore") ||
+            lower.contains("fortune") ||
+            lower.contains("raj mandir") ||
+            lower.contains("prasads") ||
+            lower.contains("amb") ||
+            lower.contains("mukta") ||
+            lower.contains("srs") ||
+            lower.contains("rajhans") ||
+            lower.contains("mayajaal") ||
+            lower.contains("satyam") ||
+            lower.contains("gold cinema") ||
+            lower.contains("ny cinemas") ||
+            lower.contains("city pride") ||
+            lower.contains("alankar") ||
+            lower.contains("kserasera") ||
+            lower.contains("velocity") ||
+            lower.contains("astor") ||
+            lower.contains("everest") ||
+            lower.contains("broadway") ||
+            lower.contains("grand cinema") ||
+            lower.contains("plaza")) {
+            return true;
+        }
+
+        // 3. Check generic theatrical/cinema keywords
+        if (lower.contains("cinema") ||
+            lower.contains("cinemas") ||
+            lower.contains("theatre") ||
+            lower.contains("theatres") ||
+            lower.contains("theater") ||
+            lower.contains("theaters") ||
+            lower.contains("talkies") ||
+            lower.contains("multiplex") ||
+            lower.contains("cineplex") ||
+            lower.contains("imax") ||
+            lower.contains("picture palace") ||
+            lower.contains("picture hall") ||
+            lower.contains("chitra mandir") ||
+            lower.contains("bioscope") ||
+            lower.contains("film city")) {
+            return true;
+        }
+
+        return false;
     }
 
     public static String detectCinemaChain(String name) {

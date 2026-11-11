@@ -765,43 +765,7 @@ public class TmdbMovieService {
                 .build();
 
         Movie savedMovie = movieRepository.save(newMovie);
-
-        // Schedule shows across existing screens so user can book immediately
-        scheduleShowsForMovie(savedMovie);
-
         return savedMovie;
-    }
-
-    private void scheduleShowsForMovie(Movie movie) {
-        List<Screen> allScreens = screenRepository.findAll();
-        if (allScreens.isEmpty()) return;
-        List<Screen> targetScreens = allScreens.stream().limit(30).toList();
-
-        LocalDate today = LocalDate.now();
-        List<Show> newShows = new ArrayList<>();
-
-        for (int dayOffset = 0; dayOffset < 4; dayOffset++) {
-            LocalDate date = today.plusDays(dayOffset);
-            for (Screen screen : targetScreens) {
-                Theatre theatre = screen.getTheatre();
-                for (int slot = 0; slot < 2; slot++) {
-                    int slotIndex = (slot == 0) ? 1 : 3; // matinee & prime evening
-                    LocalDateTime showTime = com.moviebooking.util.ShowPricingAndScheduleHelper.calculateShowTime(date, dayOffset, slotIndex, theatre, screen);
-                    var pricing = com.moviebooking.util.ShowPricingAndScheduleHelper.calculatePricing(theatre, screen, slotIndex);
-
-                    newShows.add(Show.builder()
-                            .movie(movie)
-                            .screen(screen)
-                            .showTime(showTime)
-                            .basePrice(pricing.basePrice())
-                            .premiumPrice(pricing.premiumPrice())
-                            .vipPrice(pricing.vipPrice())
-                            .status(Show.ShowStatus.SCHEDULED)
-                            .build());
-                }
-            }
-        }
-        showRepository.saveAll(newShows);
     }
 
     /**

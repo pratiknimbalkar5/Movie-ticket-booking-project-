@@ -17,4 +17,8 @@ public class LoginRequest {
 
     @NotBlank(message = "Password is required")
     private String password;
+
+    public void setUsername(String username) {
+        this.username = (username != null) ? username.trim() : null;
+    }
 }

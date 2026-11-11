@@ -41,11 +41,18 @@ public class ShowService {
 
     @Transactional
     public Page<ShowResponse> searchShows(Long movieId, String city, Pageable pageable) {
-        if (city != null && !city.isBlank()) {
-            theatreService.ensureCityTheatres(city.trim());
+        if (movieId != null) {
+            Optional<Movie> mOpt = movieRepository.findById(movieId).or(() -> movieRepository.findByTmdbId(movieId));
+            if (mOpt.isPresent()) {
+                Movie m = mOpt.get();
+                if (Boolean.TRUE.equals(m.getIsUpcoming()) || (m.getReleaseDate() != null && m.getReleaseDate().isAfter(LocalDate.now()))) {
+                    return Page.empty(pageable);
+                }
+            }
         }
         LocalDateTime now = LocalDateTime.now();
-        return showRepository.searchShows(movieId, city, now, pageable).map(this::mapToShowResponse);
+        String cleanCity = com.moviebooking.util.CityCoordinatesHelper.normalizeCityName(city);
+        return showRepository.searchShows(movieId, cleanCity, now, pageable).map(this::mapToShowResponse);
     }
 
     @Transactional
@@ -55,42 +62,41 @@ public class ShowService {
 
     @Transactional
     public List<NearbyTheatreShowsResponse> getNearbyShows(String city, Long movieId, Double userLat, Double userLon, Double radiusKm, LocalDate date) {
-        String cleanCity = (city != null && !city.isBlank()) ? city.trim() : null;
+        String cleanCity = com.moviebooking.util.CityCoordinatesHelper.normalizeCityName(city);
         if (cleanCity == null && movieId == null && (userLat == null || userLon == null)) {
             return Collections.emptyList();
         }
-        if (cleanCity != null) {
-            theatreService.ensureCityTheatres(cleanCity);
+
+        // Strictly exclude upcoming or unreleased movies from having any showtimes
+        if (movieId != null) {
+            Optional<Movie> mOpt = movieRepository.findById(movieId).or(() -> movieRepository.findByTmdbId(movieId));
+            if (mOpt.isPresent()) {
+                Movie m = mOpt.get();
+                if (Boolean.TRUE.equals(m.getIsUpcoming()) || (m.getReleaseDate() != null && m.getReleaseDate().isAfter(LocalDate.now()))) {
+                    return Collections.emptyList();
+                }
+            }
         }
+
         LocalDate targetDate = (date != null) ? date : LocalDate.now();
         LocalDateTime start = targetDate.isEqual(LocalDate.now()) ? LocalDateTime.now().minusHours(1) : targetDate.atStartOfDay();
         LocalDateTime end = targetDate.atTime(23, 59, 59);
 
         List<Show> shows = showRepository.findNearbyShows(movieId, cleanCity, start, end);
 
-        // Fallback 1: If today's shows are done or none on this date, widen to upcoming 3 days
+        // If today's shows are done or none on this date, widen to upcoming 3 days ONLY for the exact requested movie
         if (shows.isEmpty()) {
             shows = showRepository.findNearbyShows(movieId, cleanCity, LocalDateTime.now(), LocalDateTime.now().plusDays(3));
         }
 
-        // Fallback 2: If movieId was passed but yielded no shows (e.g. unmapped TMDB id), fetch all shows in this city
-        if (shows.isEmpty() && cleanCity != null) {
-            shows = showRepository.findNearbyShows(null, cleanCity, LocalDateTime.now().minusHours(1), LocalDateTime.now().plusDays(3));
+        // If movieId was explicitly specified, do NOT substitute other movies' shows!
+        if (movieId != null && shows.isEmpty()) {
+            return Collections.emptyList();
         }
 
-        // Fallback 3: If still empty and cleanCity was provided, fetch any shows for theatres matching city
-        if (shows.isEmpty() && cleanCity != null) {
-            List<com.moviebooking.entity.Theatre> matchingTheatres = theatreRepository.searchByCityLikeIgnoreCase(cleanCity);
-            if (!matchingTheatres.isEmpty()) {
-                List<Long> theatreIds = matchingTheatres.stream().map(com.moviebooking.entity.Theatre::getId).toList();
-                shows = showRepository.findAll().stream()
-                        .filter(s -> s.getStatus() == Show.ShowStatus.SCHEDULED)
-                        .filter(s -> theatreIds.contains(s.getScreen().getTheatre().getId()))
-                        .filter(s -> s.getShowTime().isAfter(LocalDateTime.now().minusHours(2)))
-                        .sorted(Comparator.comparing(Show::getShowTime))
-                        .limit(30)
-                        .toList();
-            }
+        // Only when no movieId is specified (exploring city shows in general), discover citywide shows
+        if (movieId == null && shows.isEmpty() && cleanCity != null) {
+            shows = showRepository.findNearbyShows(null, cleanCity, LocalDateTime.now().minusHours(1), LocalDateTime.now().plusDays(3));
         }
 
         Map<Long, List<Show>> showsByTheatre = shows.stream()

@@ -69,9 +69,6 @@ public class ScheduledMovieRefreshService {
             }
             if (internationalShowtimesService != null) {
                 internationalShowtimesService.clearCache();
-                if (internationalShowtimesService.isConfigured()) {
-                    internationalShowtimesService.verifyAccountAccess();
-                }
             }
 
             // 3. Recalculate Now Showing eligibility for local database movies
