@@ -20,9 +20,9 @@
     <description>Movie Ticket Booking System - Portfolio Project</description>
 
     <properties>
-        <!-- Java 25 (LTS installed) -->
-        <java.version>25</java.version>
-        <!-- Lombok version for Java 25 -->
+        <!-- Java 21 LTS (Cloud & Render standard) -->
+        <java.version>21</java.version>
+        <!-- Lombok version -->
         <lombok.version>1.18.48</lombok.version>
         <!-- JWT library version -->
         <jjwt.version>0.12.6</jjwt.version>

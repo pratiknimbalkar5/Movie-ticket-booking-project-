@@ -15,8 +15,13 @@ public class CorsConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        // Allow local React dev servers (Vite default is 5173, Create-React-App default is 3000)
-        configuration.setAllowedOrigins(Arrays.asList("http://localhost:3000", "http://localhost:5173"));
+        // Allow local dev servers and cloud deployments (Render, Vercel, Netlify)
+        configuration.setAllowedOriginPatterns(Arrays.asList(
+                "http://localhost:*",
+                "https://*.onrender.com",
+                "https://*.vercel.app",
+                "https://*.netlify.app"
+        ));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);
